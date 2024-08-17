@@ -67,6 +67,7 @@ namespace lexer{
             } number_type;
 
             number(position start, const std::string& text) : base(start, token::types::NUMBER), text(text) {
+                // by default this code for decimal checking will never be of any use in tokenizer, since tokenizer only creates primitive tokens, where an decimal would be just an collection of two numbers and one dot operator.
                 if(text.find('.') != std::string::npos) number_type = types::FLOAT;
                 else number_type = types::INTEGER;
             }
@@ -205,7 +206,9 @@ namespace lexer{
     }
 
     // tokenizes the given text into a vector of tokens.
-    std::vector<token::base*> tokenize(std::string text);
+    extern std::vector<token::base*> tokenize(std::string text, unsigned file_id);
+
+
 }
 
 #endif

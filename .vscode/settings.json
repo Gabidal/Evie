@@ -24,6 +24,16 @@
         "xmemory": "cpp",
         "xstddef": "cpp",
         "xtr1common": "cpp",
-        "xutility": "cpp"
+        "xutility": "cpp",
+        "atomic": "cpp",
+        "ctime": "cpp",
+        "memory": "cpp",
+        "mutex": "cpp",
+        "ratio": "cpp",
+        "stdexcept": "cpp",
+        "stop_token": "cpp",
+        "system_error": "cpp",
+        "thread": "cpp",
+        "typeinfo": "cpp"
     }
 }
