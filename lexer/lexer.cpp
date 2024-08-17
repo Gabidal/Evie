@@ -33,7 +33,7 @@ namespace lexer{
     }
 
     // this function will slice the inputted text into simple word tokens.
-    void slice_tokens(std::string text, unsigned file_id, std::vector<token::base*>& tokens, std::vector<unsigned int>& wrapper_indicies){
+    void slice_tokens(std::string text, unsigned file_id, std::vector<token::base*>& tokens, std::vector<unsigned int>& wrapper_indicies, std::vector<unsigned int>& number_indicies, std::vector<unsigned int>& newline_indicies){
         // carry information about previous and current token states.
         cluster::group previous_group = cluster::get_group(text[0]);
         unsigned int previous_start_offset = 0;
@@ -61,6 +61,14 @@ namespace lexer{
                 // check if the new token is an wrap token, if so then add it to the wrapper_indicies
                 if (current_token->get_type() == token::types::WRAPPER){
                     wrapper_indicies.push_back(tokens.size());
+                }
+                // check if the new token is an number token, if so then add it to the number_indicies
+                else if (current_token->get_type() == token::types::NUMBER){
+                    number_indicies.push_back(tokens.size());
+                }
+                // check if the new token is an newline token, if so then add it to the newline_indicies
+                else if (current_token->get_type() == token::types::SEPARATOR && static_cast<token::separator*>(current_token)->type == token::separator::types::NEWLINE){
+                    newline_indicies.push_back(tokens.size());
                 }
 
                 tokens.push_back(current_token);
@@ -163,8 +171,61 @@ namespace lexer{
     }
 
     // this function will produce primitive patterns from the tokens.
-    void preprocess_tokens(std::vector<token::base*>& tokens, unsigned int file_id){
-        // will create decimals from 
+    void preprocess_tokens(std::vector<token::base*>& tokens, unsigned int file_id, std::vector<unsigned int> number_indicies, std::vector<unsigned int>& newline_indicies){
+        for (unsigned int i = number_indicies.size(); i > 0; i--){
+
+            // connect numbers with text tokens if text token exceeds the current number token.
+            if (i - 1 >= 0 && tokens[number_indicies[i] - 1]->get_type() == token::types::TEXT){
+
+                // add the number token into the text token
+                token::number* number_token = static_cast<token::number*>(tokens[number_indicies[i]]);
+
+                token::text* text_token = static_cast<token::text*>(tokens[number_indicies[i] - 1]);
+
+                text_token->data += number_token->text;
+
+                // remove the current number index
+                tokens.erase(tokens.begin() + number_indicies[i]);
+
+                // remove the current number index from the number_indicies
+                number_indicies.erase(number_indicies.begin() + i);
+            }
+            
+            // connect two numbers where there is either an DOT operator
+            // fast way to check for two numbers on both sides of an separator, is by checking the two nearest number_indicies and their distance from each other.
+            if (i - 2 >= 0 && number_indicies[i] - number_indicies[i-1] == (0 + 1 + 1)){    // (index[i-1] + separator_index + index[1])
+
+                token::base* undefined_separator = tokens[number_indicies[i] - 1];  // this is the token between the two number tokens.
+
+                token::number* number_base = static_cast<token::number*>(tokens[number_indicies[i - 1]]);
+
+                // check if the combined pattern is an decimal pattern
+                if (undefined_separator->get_type() == token::types::OPERATOR && static_cast<token::op*>(undefined_separator)->text[0] == '.'){
+
+                    number_base->number_type = token::number::types::FLOAT;
+
+                    number_base->text = number_base->text + "." + static_cast<token::number*>(tokens[number_indicies[i]])->text;
+                }
+
+                // remove the current number index
+                tokens.erase(tokens.begin() + number_indicies[i]);
+
+                // remove the separator 
+                tokens.erase(tokens.begin() + number_indicies[i] - 1);
+
+                // remove the current number index from the number_indicies
+                number_indicies.erase(number_indicies.begin() + i);
+            }
+        
+            // connect two newlines
+            if (i - 1 >= 0 && newline_indicies[i] - newline_indicies[i-1] == 1){
+                // remove the current newline index
+                tokens.erase(tokens.begin() + newline_indicies[i]);
+
+                // remove the current newline index from the newline_indicies
+                newline_indicies.erase(newline_indicies.begin() + i);
+            }
+        }
     }
 
     std::vector<token::base*> tokenize(std::string text, unsigned file_id){
@@ -176,12 +237,14 @@ namespace lexer{
         }
 
         std::vector<unsigned int> wrapper_indicies;
+        std::vector<unsigned int> number_indicies;
+        std::vector<unsigned int> newline_indicies;
 
-        slice_tokens(text, file_id, tokens, wrapper_indicies);
+        slice_tokens(text, file_id, tokens, wrapper_indicies, number_indicies, newline_indicies);
         
         wrap_tokens(tokens, wrapper_indicies);
 
-        preprocess_tokens(tokens, file_id);
+        preprocess_tokens(tokens, file_id, number_indicies, newline_indicies);
 
         return tokens;
     }
