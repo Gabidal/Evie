@@ -35,8 +35,11 @@ namespace lexer{
             position start;     // start position of the token
 
             types type;         // type of the token
+
         public:
-            base(position start, types type) : start(start), type(type) {}
+            bool redundant;     // used to flag if an token is flagged to be removed later on instead of messing up calculated indicies.
+
+            base(position start, types type) : start(start), type(type), redundant(false) {}
             virtual ~base() {}
 
             position get_start() const { return start; }

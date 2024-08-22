@@ -171,7 +171,7 @@ namespace lexer{
     }
 
     // this function will produce primitive patterns from the tokens.
-    void preprocess_tokens(std::vector<token::base*>& tokens, unsigned int file_id, std::vector<unsigned int> number_indicies, std::vector<unsigned int>& newline_indicies){
+    void combine_numerical_texts(std::vector<token::base*> tokens, unsigned int file_id, std::vector<unsigned int> number_indicies){
         for (unsigned int i = number_indicies.size(); i > 0; i--){
 
             // connect numbers with text tokens if text token exceeds the current number token.
@@ -184,11 +184,8 @@ namespace lexer{
 
                 text_token->data += number_token->text;
 
-                // remove the current number index
-                tokens.erase(tokens.begin() + number_indicies[i]);
-
-                // remove the current number index from the number_indicies
-                number_indicies.erase(number_indicies.begin() + i);
+                // mark the number token as redundant
+                number_token->redundant = true;
             }
             
             // connect two numbers where there is either an DOT operator
@@ -207,23 +204,33 @@ namespace lexer{
                     number_base->text = number_base->text + "." + static_cast<token::number*>(tokens[number_indicies[i]])->text;
                 }
 
-                // remove the current number index
-                tokens.erase(tokens.begin() + number_indicies[i]);
-
-                // remove the separator 
-                tokens.erase(tokens.begin() + number_indicies[i] - 1);
-
-                // remove the current number index from the number_indicies
-                number_indicies.erase(number_indicies.begin() + i);
+                // mark the separator and the tailing number as redundant
+                undefined_separator->redundant = true;
+                tokens[number_indicies[i]]->redundant = true;
             }
-        
+        }
+    }
+
+    void combine_newlines(std::vector<token::base*> tokens, std::vector<unsigned int> newline_indicies){
+        for (unsigned int i = newline_indicies.size(); i > 0; i--){
             // connect two newlines
             if (i - 1 >= 0 && newline_indicies[i] - newline_indicies[i-1] == 1){
-                // remove the current newline index
-                tokens.erase(tokens.begin() + newline_indicies[i]);
+                // flag the token at i to be redundant
+                tokens[i]->redundant = true;
+            }
+        }
+    }
 
-                // remove the current newline index from the newline_indicies
-                newline_indicies.erase(newline_indicies.begin() + i);
+    void remove_redundant_tokens(std::vector<token::base*>& tokens){
+        for (unsigned int i = 0; i < tokens.size(); i++){
+            // check wrapper tokens if they contain any redundant tokens
+            if (tokens[i]->get_type() == token::types::WRAPPER){
+                remove_redundant_tokens(static_cast<token::wrapper*>(tokens[i])->tokens);
+            }
+
+            if (tokens[i]->redundant){
+                delete tokens[i];
+                tokens.erase(tokens.begin() + i);
             }
         }
     }
@@ -242,9 +249,13 @@ namespace lexer{
 
         slice_tokens(text, file_id, tokens, wrapper_indicies, number_indicies, newline_indicies);
         
+        combine_numerical_texts(tokens, file_id, number_indicies);
+
+        combine_newlines(tokens, newline_indicies);
+        
         wrap_tokens(tokens, wrapper_indicies);
 
-        preprocess_tokens(tokens, file_id, number_indicies, newline_indicies);
+        remove_redundant_tokens(tokens);
 
         return tokens;
     }
