@@ -211,7 +211,6 @@ namespace lexer{
     // tokenizes the given text into a vector of tokens.
     extern std::vector<token::base*> tokenize(std::string text, unsigned file_id);
 
-
 }
 
 #endif
