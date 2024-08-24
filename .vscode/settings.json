@@ -64,6 +64,9 @@
         "xlocnum": "cpp",
         "xloctime": "cpp",
         "xtree": "cpp",
-        "unordered_map": "cpp"
+        "unordered_map": "cpp",
+        "fstream": "cpp",
+        "functional": "cpp",
+        "xhash": "cpp"
     }
 }

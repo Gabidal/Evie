@@ -142,7 +142,26 @@ namespace lexer{
                 if (self[0] == '\2') type = types::START_OF_FILE;
                 else if (self[0] == '\3') type = types::END_OF_FILE;
             }
+
+            control(position start, std::string self) : base(start, token::types::CONTROL){
+                                if (self.empty()){
+                    // TODO: log error
+                    return;
+                }
+
+                if (self[0] == '\2') type = types::START_OF_FILE;
+                else if (self[0] == '\3') type = types::END_OF_FILE;
+            }
+                    
         };
+
+        namespace presets{
+            control start_of_file({ 0, 0, 0 }, "\2");
+
+            control end_of_file(position p){
+                return control(p, "\3");
+            }
+        }
 
         extern base* create(types type, std::string& text);
     }
