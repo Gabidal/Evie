@@ -19,6 +19,26 @@
                 "isDefault": true
             },
             "detail": "Buildarna"
+        },
+        {
+            "type": "shell",
+            "label": "test",
+            "command": "meson",
+            "args": [
+                "compile",
+                "-C",
+                "bin/build",
+                "tester"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "problemMatcher": "$gcc",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "detail": "test"
         }
     ],
     "version": "2.0.0"

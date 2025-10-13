@@ -73,6 +73,10 @@
         "__tuple": "cpp",
         "__split_buffer": "cpp",
         "queue": "cpp",
-        "stack": "cpp"
+        "stack": "cpp",
+        "fstream": "cpp",
+        "iostream": "cpp",
+        "ranges": "cpp",
+        "text_encoding": "cpp"
     }
 }

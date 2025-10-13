@@ -23,6 +23,8 @@ namespace tester {
             add_test("Tokenize String Wrapper", "string contents tuck into wrapper tokens", test_tokenize_string_wrapper);
             add_test("Tokenize Collapse Newlines", "consecutive newlines reduce to single token", test_tokenize_collapse_newlines);
             add_test("Token Position Tracking", "tokenize keeps column/line offsets", test_token_position_tracking);
+            add_test("Tokenize Nested Parentheses", "recursive wrappers build parent-child chains", test_tokenize_nested_parentheses);
+            add_test("Tokenize Nested Siblings", "sequential wrappers keep hierarchy intact", test_tokenize_nested_siblings);
         }
 
     private:
@@ -185,6 +187,82 @@ namespace tester {
             auto start_b = guard.tokens[2]->get_start();
             ASSERT_EQ(static_cast<unsigned short>(0), start_b.x);
             ASSERT_EQ(static_cast<unsigned short>(1), start_b.y);
+        }
+
+        static void test_tokenize_nested_parentheses() {
+            TokenGuard guard;
+            guard.tokens = lexer::tokenize("(foo(bar(baz)))", 0);
+
+            ASSERT_EQ(static_cast<std::size_t>(1), guard.tokens.size());
+            ASSERT_TRUE(guard.tokens[0]->get_type() == lexer::token::types::WRAPPER);
+
+            auto* outer = static_cast<lexer::token::wrapper*>(guard.tokens[0]);
+            ASSERT_TRUE(outer->type == lexer::token::wrapper::types::ROUND_BRACKETS);
+            ASSERT_EQ('(', outer->identity);
+            ASSERT_EQ(static_cast<std::size_t>(2), outer->tokens.size());
+
+            ASSERT_TRUE(outer->tokens[0]->get_type() == lexer::token::types::TEXT);
+            auto* outer_text = static_cast<lexer::token::text*>(outer->tokens[0]);
+            ASSERT_EQ(std::string("foo"), outer_text->data);
+
+            ASSERT_TRUE(outer->tokens[1]->get_type() == lexer::token::types::WRAPPER);
+            auto* middle = static_cast<lexer::token::wrapper*>(outer->tokens[1]);
+            ASSERT_TRUE(middle->type == lexer::token::wrapper::types::ROUND_BRACKETS);
+            ASSERT_EQ(static_cast<std::size_t>(2), middle->tokens.size());
+
+            ASSERT_TRUE(middle->tokens[0]->get_type() == lexer::token::types::TEXT);
+            auto* middle_text = static_cast<lexer::token::text*>(middle->tokens[0]);
+            ASSERT_EQ(std::string("bar"), middle_text->data);
+
+            ASSERT_TRUE(middle->tokens[1]->get_type() == lexer::token::types::WRAPPER);
+            auto* inner = static_cast<lexer::token::wrapper*>(middle->tokens[1]);
+            ASSERT_TRUE(inner->type == lexer::token::wrapper::types::ROUND_BRACKETS);
+            ASSERT_EQ(static_cast<std::size_t>(1), inner->tokens.size());
+
+            ASSERT_TRUE(inner->tokens[0]->get_type() == lexer::token::types::TEXT);
+            auto* inner_text = static_cast<lexer::token::text*>(inner->tokens[0]);
+            ASSERT_EQ(std::string("baz"), inner_text->data);
+        }
+
+        static void test_tokenize_nested_siblings() {
+            TokenGuard guard;
+            guard.tokens = lexer::tokenize("(outer(inner1)(inner2(inner3)))", 1);
+
+            ASSERT_EQ(static_cast<std::size_t>(1), guard.tokens.size());
+            ASSERT_TRUE(guard.tokens[0]->get_type() == lexer::token::types::WRAPPER);
+
+            auto* outer = static_cast<lexer::token::wrapper*>(guard.tokens[0]);
+            ASSERT_TRUE(outer->type == lexer::token::wrapper::types::ROUND_BRACKETS);
+            ASSERT_EQ(static_cast<std::size_t>(3), outer->tokens.size());
+
+            ASSERT_TRUE(outer->tokens[0]->get_type() == lexer::token::types::TEXT);
+            auto* label = static_cast<lexer::token::text*>(outer->tokens[0]);
+            ASSERT_EQ(std::string("outer"), label->data);
+
+            ASSERT_TRUE(outer->tokens[1]->get_type() == lexer::token::types::WRAPPER);
+            auto* first_child = static_cast<lexer::token::wrapper*>(outer->tokens[1]);
+            ASSERT_TRUE(first_child->type == lexer::token::wrapper::types::ROUND_BRACKETS);
+            ASSERT_EQ(static_cast<std::size_t>(1), first_child->tokens.size());
+            ASSERT_TRUE(first_child->tokens[0]->get_type() == lexer::token::types::TEXT);
+            auto* first_inner = static_cast<lexer::token::text*>(first_child->tokens[0]);
+            ASSERT_EQ(std::string("inner1"), first_inner->data);
+
+            ASSERT_TRUE(outer->tokens[2]->get_type() == lexer::token::types::WRAPPER);
+            auto* second_child = static_cast<lexer::token::wrapper*>(outer->tokens[2]);
+            ASSERT_TRUE(second_child->type == lexer::token::wrapper::types::ROUND_BRACKETS);
+            ASSERT_EQ(static_cast<std::size_t>(2), second_child->tokens.size());
+
+            ASSERT_TRUE(second_child->tokens[0]->get_type() == lexer::token::types::TEXT);
+            auto* second_inner_label = static_cast<lexer::token::text*>(second_child->tokens[0]);
+            ASSERT_EQ(std::string("inner2"), second_inner_label->data);
+
+            ASSERT_TRUE(second_child->tokens[1]->get_type() == lexer::token::types::WRAPPER);
+            auto* grand_child = static_cast<lexer::token::wrapper*>(second_child->tokens[1]);
+            ASSERT_TRUE(grand_child->type == lexer::token::wrapper::types::ROUND_BRACKETS);
+            ASSERT_EQ(static_cast<std::size_t>(1), grand_child->tokens.size());
+            ASSERT_TRUE(grand_child->tokens[0]->get_type() == lexer::token::types::TEXT);
+            auto* deep_text = static_cast<lexer::token::text*>(grand_child->tokens[0]);
+            ASSERT_EQ(std::string("inner3"), deep_text->data);
         }
     };
 }

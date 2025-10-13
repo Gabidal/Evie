@@ -44,6 +44,11 @@ namespace lexer{
 
             position get_start() const { return start; }
             types get_type() const { return type; }
+            
+            // Pure virtual clone method for deep copying
+            virtual base* clone() const {
+                return new base(*this);
+            }
         };
 
         class text : public base{
@@ -51,6 +56,10 @@ namespace lexer{
             std::string data;   // the text itself
 
             text(position start_position, const std::string& text_value) : base(start_position, types::TEXT), data(text_value) {}
+            
+            base* clone() const override {
+                return new text(*this);
+            }
         };
 
         class op : public base{
@@ -58,6 +67,10 @@ namespace lexer{
             std::string text;   // the operator itself
 
             op(position start_position, const std::string& text_value) : base(start_position, types::OPERATOR), text(text_value) {}
+            
+            base* clone() const override {
+                return new op(*this);
+            }
         };
 
         class number : public base{
@@ -74,6 +87,10 @@ namespace lexer{
                 if(text.find('.') != std::string::npos) number_type = types::FLOAT;
                 else number_type = types::INTEGER;
             }
+            
+            base* clone() const override {
+                return new number(*this);
+            }
         };
 
         class separator : public base{
@@ -89,6 +106,10 @@ namespace lexer{
                 if (text_value == ",") type = types::COMMA;
                 else if (text_value == " ") type = types::SPACE;
                 else if (text_value == "\n") type = types::NEWLINE;
+            }
+            
+            base* clone() const override {
+                return new separator(*this);
             }
         };
 
@@ -123,6 +144,18 @@ namespace lexer{
                 else if (identity == '[' || identity == ']') type = types::SQUARE_BRACKETS;
                 else if (identity == '{' || identity == '}') type = types::CURLY_BRACKETS;
             }
+            
+            base* clone() const override {
+                wrapper* cloned = new wrapper(*this);
+                // Deep copy the tokens vector
+                cloned->tokens.clear();
+                for (const auto& token : tokens) {
+                    if (token) {
+                        cloned->tokens.push_back(token->clone());
+                    }
+                }
+                return cloned;
+            }
         };
 
         class control : public base{
@@ -151,6 +184,10 @@ namespace lexer{
 
                 if (self_text[0] == '\2') type = types::START_OF_FILE;
                 else if (self_text[0] == '\3') type = types::END_OF_FILE;
+            }
+            
+            base* clone() const override {
+                return new control(*this);
             }
                     
         };

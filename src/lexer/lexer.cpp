@@ -143,53 +143,67 @@ namespace lexer{
                 // make sure that the ending wrap identity is of an right type.
                 if (wrapper_end_identity == wrap_condition.second){
                     if (wrapper_nested_count > 0){
-                        // decrease nested count for nested wrappers of the same type.
                         wrapper_nested_count--;
-                        if (wrapper_nested_count != 0) continue;
+                        continue;
                     }
 
-                        // now create an sub-copy of the wrapper_indicies
-                        std::vector<unsigned int> sub_wrapper_indicies(
-                            wrapper_indicies.begin() + wrapper_start_index + 1,
-                            wrapper_indicies.begin() + wrapper_end_index
-                        );
+                    // now create an sub-copy of the wrapper_indicies
+                    std::vector<unsigned int> sub_wrapper_indicies(
+                        wrapper_indicies.begin() + wrapper_start_index + 1,
+                        wrapper_indicies.begin() + wrapper_end_index
+                    );
 
-                        // now also make all the sub_wrapper_indices relative to the current wrapper_start_index as an zero origin
-                        for (unsigned int i = 0; i < sub_wrapper_indicies.size(); i++){
-                            sub_wrapper_indicies[i] -= wrapper_start_index + 1;
+                    // now also make all the sub_wrapper_indices relative to the current wrapper_start_index as an zero origin
+                    for (unsigned int i = 0; i < sub_wrapper_indicies.size(); i++){
+                        sub_wrapper_indicies[i] -= wrapper_indicies[wrapper_start_index] + 1;
+                    }
+
+                    // now create an sub-copy of the tokens between the starting wrapped index and the end
+                    std::vector<token::base*> sub_tokens(
+                        tokens.begin() + wrapper_indicies[wrapper_start_index] + 1,
+                        tokens.begin() + wrapper_indicies[wrapper_end_index]
+                    );
+
+                    // Deep copy the sub_tokens before assigning to wrapper to prevent dangling pointers
+                    std::vector<token::base*> deep_copied_tokens;
+                    deep_copied_tokens.reserve(sub_tokens.size());
+                    for (const auto& token : sub_tokens) {
+                        if (token) {
+                            deep_copied_tokens.push_back(token->clone());
                         }
+                    }
+                    
+                    // now call the wrap_tokens on the tokens of the wrapper
+                    wrap_tokens(deep_copied_tokens, sub_wrapper_indicies);
 
-                        // now create an sub-copy of the tokens between the starting wrapped index and the end
-                        std::vector<token::base*> sub_tokens(
-                            tokens.begin() + wrapper_indicies[wrapper_start_index] + 1,
-                            tokens.begin() + wrapper_indicies[wrapper_end_index]
-                        );
+                    static_cast<token::wrapper*>(tokens[wrapper_indicies[wrapper_start_index]])->tokens = deep_copied_tokens;
 
-                        // now call the wrap_tokens on the tokens of the wrapper
-                        wrap_tokens(sub_tokens, sub_wrapper_indicies);
+                    // now remove the copied tokens from the tokens list
+                    for (unsigned int i = wrapper_indicies[wrapper_start_index] + 1; i < wrapper_indicies[wrapper_end_index]; i++) {
+                        tokens[i]->redundant = true;
+                    }
 
-                        static_cast<token::wrapper*>(tokens[wrapper_indicies[wrapper_start_index]])->tokens = sub_tokens;
+                    tokens[wrapper_indicies[wrapper_end_index]]->redundant = true; // ensure the closing wrapper is marked redundant
 
-                        // now remove the copied tokens from the tokens list
-                        tokens.erase(
-                            tokens.begin() + wrapper_indicies[wrapper_start_index] + 1,
-                            tokens.begin() + wrapper_indicies[wrapper_end_index]
-                        );
+                    // tokens.erase(
+                    //     tokens.begin() + wrapper_indicies[wrapper_start_index] + 1,
+                    //     tokens.begin() + wrapper_indicies[wrapper_end_index]
+                    // );
 
-                        // remove the closing wrapper token itself
-                        tokens.erase(tokens.begin() + wrapper_indicies[wrapper_start_index] + 1);
+                    // remove the closing wrapper token itself
+                    // tokens.erase(tokens.begin() + wrapper_indicies[wrapper_start_index] + 1);
 
-                        // now remove the copied wrapper_indicies from the wrapper_indicies list
-                        wrapper_indicies.erase(
-                            wrapper_indicies.begin() + wrapper_start_index + 1,
-                            wrapper_indicies.begin() + wrapper_end_index
-                        );
+                    // now remove the copied wrapper_indicies from the wrapper_indicies list
+                    wrapper_indicies.erase(
+                        wrapper_indicies.begin() + wrapper_start_index + 1,
+                        wrapper_indicies.begin() + wrapper_end_index
+                    );
 
-                        // remove the closing wrapper index entry
-                        wrapper_indicies.erase(wrapper_indicies.begin() + wrapper_start_index + 1);
+                    // remove the closing wrapper index entry
+                    wrapper_indicies.erase(wrapper_indicies.begin() + wrapper_start_index + 1);
 
-                        // now break the inner loop
-                        break;
+                    // now break the inner loop
+                    break;
                 }
 
             }
