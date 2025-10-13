@@ -35,8 +35,11 @@ namespace lexer{
             position start;     // start position of the token
 
             types type;         // type of the token
+
         public:
-            base(position start, types type) : start(start), type(type) {}
+            bool redundant;     // used to flag if an token is flagged to be removed later on instead of messing up calculated indicies.
+
+            base(position start, types type) : start(start), type(type), redundant(false) {}
             virtual ~base() {}
 
             position get_start() const { return start; }
@@ -67,6 +70,7 @@ namespace lexer{
             } number_type;
 
             number(position start, const std::string& text) : base(start, token::types::NUMBER), text(text) {
+                // by default this code for decimal checking will never be of any use in tokenizer, since tokenizer only creates primitive tokens, where an decimal would be just an collection of two numbers and one dot operator.
                 if(text.find('.') != std::string::npos) number_type = types::FLOAT;
                 else number_type = types::INTEGER;
             }
@@ -138,7 +142,26 @@ namespace lexer{
                 if (self[0] == '\2') type = types::START_OF_FILE;
                 else if (self[0] == '\3') type = types::END_OF_FILE;
             }
+
+            control(position start, const char* self) : base(start, token::types::CONTROL){
+                if (std::string(self).empty()){
+                    // TODO: log error
+                    return;
+                }
+
+                if (self[0] == '\2') type = types::START_OF_FILE;
+                else if (self[0] == '\3') type = types::END_OF_FILE;
+            }
+                    
         };
+
+        namespace presets{
+            control start_of_file({ 0, 0, 0 }, "\2");
+
+            control end_of_file(position p){
+                return control(p, "\3");
+            }
+        }
 
         extern base* create(types type, std::string& text);
     }
@@ -205,7 +228,8 @@ namespace lexer{
     }
 
     // tokenizes the given text into a vector of tokens.
-    std::vector<token::base*> tokenize(std::string text);
+    extern std::vector<token::base*> tokenize(std::string text, unsigned file_id);
+
 }
 
 #endif
