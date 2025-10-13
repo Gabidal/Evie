@@ -179,19 +179,9 @@ namespace lexer{
                     static_cast<token::wrapper*>(tokens[wrapper_indicies[wrapper_start_index]])->tokens = deep_copied_tokens;
 
                     // now remove the copied tokens from the tokens list
-                    for (unsigned int i = wrapper_indicies[wrapper_start_index] + 1; i < wrapper_indicies[wrapper_end_index]; i++) {
+                    for (unsigned int i = wrapper_indicies[wrapper_start_index] + 1; i <= wrapper_indicies[wrapper_end_index]; i++) {
                         tokens[i]->redundant = true;
                     }
-
-                    tokens[wrapper_indicies[wrapper_end_index]]->redundant = true; // ensure the closing wrapper is marked redundant
-
-                    // tokens.erase(
-                    //     tokens.begin() + wrapper_indicies[wrapper_start_index] + 1,
-                    //     tokens.begin() + wrapper_indicies[wrapper_end_index]
-                    // );
-
-                    // remove the closing wrapper token itself
-                    // tokens.erase(tokens.begin() + wrapper_indicies[wrapper_start_index] + 1);
 
                     // now remove the copied wrapper_indicies from the wrapper_indicies list
                     wrapper_indicies.erase(
