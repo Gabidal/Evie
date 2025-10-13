@@ -1,0 +1,25 @@
+{
+    "tasks": [
+        {
+            "type": "shell",
+            "label": "Buildarna",
+            "command": "meson",
+            "args": [
+                "compile",
+                "-C",
+                "bin/build",
+                "evie"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "problemMatcher": "$gcc",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "detail": "Buildarna"
+        }
+    ],
+    "version": "2.0.0"
+}
