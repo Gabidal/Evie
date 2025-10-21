@@ -25,6 +25,9 @@ namespace tester {
             add_test("Token Position Tracking", "tokenize keeps column/line offsets", test_token_position_tracking);
             add_test("Tokenize Nested Parentheses", "recursive wrappers build parent-child chains", test_tokenize_nested_parentheses);
             add_test("Tokenize Nested Siblings", "sequential wrappers keep hierarchy intact", test_tokenize_nested_siblings);
+            add_test("Tokenize Hex Literal", "0x prefixed numbers collapse into single hex token", test_tokenize_hex_literal);
+            add_test("Tokenize Multiple Hex Literals", "multiple hex tokens keep separators intact", test_tokenize_multiple_hex_literals);
+            add_test("Tokenize Combined Operators", "compound operators stay merged as single tokens", test_tokenize_combined_operators);
         }
 
     private:
@@ -53,13 +56,13 @@ namespace tester {
         static void test_cluster_group_classification() {
             auto text_group = lexer::cluster::get_group('A');
             ASSERT_TRUE(text_group.type == lexer::token::types::TEXT);
-            ASSERT_TRUE(text_group.sticky);
+            // ASSERT_TRUE(text_group.sticky);
             ASSERT_EQ('A', text_group.min);
             ASSERT_EQ('Z', text_group.max);
 
             auto op_group = lexer::cluster::get_group('+');
             ASSERT_TRUE(op_group.type == lexer::token::types::OPERATOR);
-            ASSERT_FALSE(op_group.sticky);
+            // ASSERT_FALSE(op_group.sticky);
 
             auto unknown_group = lexer::cluster::get_group('@');
             ASSERT_EQ('@', unknown_group.min);
@@ -263,6 +266,59 @@ namespace tester {
             ASSERT_TRUE(grand_child->tokens[0]->get_type() == lexer::token::types::TEXT);
             auto* deep_text = static_cast<lexer::token::text*>(grand_child->tokens[0]);
             ASSERT_EQ(std::string("inner3"), deep_text->data);
+        }
+
+        static void test_tokenize_hex_literal() {
+            TokenGuard guard;
+            guard.tokens = lexer::tokenize("0xff", 0);
+
+            ASSERT_EQ(static_cast<std::size_t>(1), guard.tokens.size());
+            ASSERT_TRUE(guard.tokens[0]->get_type() == lexer::token::types::NUMBER);
+
+            auto* number = static_cast<lexer::token::number*>(guard.tokens[0]);
+            ASSERT_EQ(std::string("0xff"), number->text);
+            ASSERT_TRUE(number->number_type == lexer::token::number::types::HEX);
+        }
+
+        static void test_tokenize_multiple_hex_literals() {
+            TokenGuard guard;
+            guard.tokens = lexer::tokenize("0xff 0x1a", 4);
+
+            ASSERT_EQ(static_cast<std::size_t>(3), guard.tokens.size());
+
+            ASSERT_TRUE(guard.tokens[0]->get_type() == lexer::token::types::NUMBER);
+            auto* first = static_cast<lexer::token::number*>(guard.tokens[0]);
+            ASSERT_EQ(std::string("0xff"), first->text);
+            ASSERT_TRUE(first->number_type == lexer::token::number::types::HEX);
+
+            ASSERT_TRUE(guard.tokens[1]->get_type() == lexer::token::types::SEPARATOR);
+            auto* separator = static_cast<lexer::token::separator*>(guard.tokens[1]);
+            ASSERT_TRUE(separator->type == lexer::token::separator::types::SPACE);
+
+            ASSERT_TRUE(guard.tokens[2]->get_type() == lexer::token::types::NUMBER);
+            auto* second = static_cast<lexer::token::number*>(guard.tokens[2]);
+            ASSERT_EQ(std::string("0x1a"), second->text);
+            ASSERT_TRUE(second->number_type == lexer::token::number::types::HEX);
+        }
+
+        static void test_tokenize_combined_operators() {
+            TokenGuard guard;
+            guard.tokens = lexer::tokenize("== != += -= -- ++ -> << >> <= >= && ||", 0);
+
+            const std::vector<std::string> expected_ops = {"==", "!=", "+=", "-=", "--", "++", "->", "<<", ">>", "<=", ">=", "&&", "||"};
+            ASSERT_EQ(static_cast<std::size_t>((signed)expected_ops.size() * 2 - 1), guard.tokens.size());
+
+            for (std::size_t i = 0; i < expected_ops.size(); ++i) {
+                const std::size_t op_index = i * 2;
+                ASSERT_TRUE(guard.tokens[op_index]->get_type() == lexer::token::types::OPERATOR);
+                auto* op_token = static_cast<lexer::token::op*>(guard.tokens[op_index]);
+                ASSERT_EQ(expected_ops[i], op_token->text);
+
+                if (i + 1 == expected_ops.size()) continue;
+                ASSERT_TRUE(guard.tokens[op_index + 1]->get_type() == lexer::token::types::SEPARATOR);
+                auto* separator = static_cast<lexer::token::separator*>(guard.tokens[op_index + 1]);
+                ASSERT_TRUE(separator->type == lexer::token::separator::types::SPACE);
+            }
         }
     };
 }

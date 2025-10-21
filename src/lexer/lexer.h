@@ -79,7 +79,8 @@ namespace lexer{
 
             enum class types{
                 INTEGER,
-                FLOAT
+                FLOAT,
+                HEX
             } number_type;
 
             number(position start_position, const std::string& text_value) : base(start_position, token::types::NUMBER), text(text_value) {
@@ -227,7 +228,7 @@ namespace lexer{
             { token::types::OPERATOR, '+', '+' },
             { token::types::OPERATOR, '-', '-' },
             { token::types::OPERATOR, '/', '/' },
-            { token::types::OPERATOR, '=', '=' },
+            { token::types::OPERATOR, '=', '=', true },
             { token::types::OPERATOR, '!', '!' },
             { token::types::OPERATOR, '<', '<' },
             { token::types::OPERATOR, '>', '>' },

@@ -1,5 +1,6 @@
 #include "lexer.h"
 
+#include <algorithm>
 #include <limits>
 #include <utility>
 
@@ -201,7 +202,7 @@ namespace lexer{
     }
 
     // this function will produce primitive patterns from the tokens.
-    void combine_numerical_texts(std::vector<token::base*>& tokens, unsigned int /*file_id*/, const std::vector<unsigned int>& number_indicies){
+    void combine_numerical_texts(std::vector<token::base*>& tokens, const std::vector<unsigned int>& number_indicies){
         if (tokens.empty() || number_indicies.empty()) return;
 
         for (size_t idx = number_indicies.size(); idx > 0; --idx){
@@ -231,6 +232,126 @@ namespace lexer{
                 number_base->text = number_base->text + "." + static_cast<token::number*>(current_token_base)->text;
                 separator_candidate->redundant = true;
                 current_token_base->redundant = true;
+            }
+        }
+    }
+
+    void combine_hex_prefix(std::vector<token::base*>& tokens, const std::vector<unsigned int>& number_indicies) {
+        auto is_hex_char = [](char c) {
+            return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+        };
+
+        for (auto index : number_indicies) {
+            if (index >= tokens.size()) continue;
+
+            auto* number_token = static_cast<token::number*>(tokens[index]);
+            if (!number_token || number_token->redundant) continue;
+
+            if (number_token->number_type != token::number::types::INTEGER || number_token->text != "0") continue;
+
+            size_t lookahead = index + 1;
+            std::string suffix;
+            std::vector<size_t> redundant_indices;
+            bool saw_prefix = false;
+
+            while (lookahead < tokens.size()) {
+                token::base* candidate = tokens[lookahead];
+                if (!candidate || candidate->redundant) {
+                    ++lookahead;
+                    continue;
+                }
+
+                if (candidate->get_type() == token::types::TEXT) {
+                    auto* text_candidate = static_cast<token::text*>(candidate);
+                    if (text_candidate->data.empty()) break;
+
+                    if (!saw_prefix) {
+                        char prefix = text_candidate->data[0];
+                        if (prefix != 'x' && prefix != 'X') break;
+                        saw_prefix = true;
+                        suffix += text_candidate->data;
+                        redundant_indices.push_back(lookahead);
+                        ++lookahead;
+                        continue;
+                    }
+
+                    bool valid_hex = std::all_of(text_candidate->data.begin(), text_candidate->data.end(), is_hex_char);
+                    if (!valid_hex) break;
+
+                    suffix += text_candidate->data;
+                    redundant_indices.push_back(lookahead);
+                    ++lookahead;
+                    continue;
+                }
+
+                if (candidate->get_type() == token::types::NUMBER) {
+                    auto* tail_number = static_cast<token::number*>(candidate);
+                    if (!tail_number->redundant) break;
+
+                    suffix += tail_number->text;
+                    redundant_indices.push_back(lookahead);
+                    ++lookahead;
+                    continue;
+                }
+
+                break;
+            }
+
+            if (!saw_prefix || suffix.size() <= 1) continue;
+
+            number_token->text += suffix;
+            number_token->number_type = token::number::types::HEX;
+
+            for (auto redundant_index : redundant_indices) {
+                if (auto* redundant_token = tokens[redundant_index]) {
+                    redundant_token->redundant = true;
+                }
+            }
+        }
+    }
+
+    void combine_operator_sequences(std::vector<token::base*>& tokens) {
+        if (tokens.empty()) return;
+
+        static const std::vector<std::string> operator_patterns = {
+            "==", "!=", "+=", "-=", "--", "++", "->", "<<", ">>", "<=", ">=", "&&", "||"
+        };
+
+        for (std::size_t index = 0; index < tokens.size(); ++index) {
+            token::base* base_token = tokens[index];
+            if (!base_token || base_token->redundant || base_token->get_type() != token::types::OPERATOR) continue;
+
+            auto* operator_token = static_cast<token::op*>(base_token);
+            if (operator_token->text.size() != 1) continue;
+
+            for (const auto& pattern : operator_patterns) {
+                const std::size_t pattern_size = pattern.size();
+                if (pattern_size <= 1) continue;
+                if (index + pattern_size > tokens.size()) continue;
+
+                bool matches = true;
+                for (std::size_t offset = 0; offset < pattern_size; ++offset) {
+                    token::base* candidate = tokens[index + offset];
+                    if (!candidate || candidate->redundant || candidate->get_type() != token::types::OPERATOR) {
+                        matches = false;
+                        break;
+                    }
+
+                    auto* candidate_operator = static_cast<token::op*>(candidate);
+                    if (candidate_operator->text.size() != 1 || candidate_operator->text[0] != pattern[offset]) {
+                        matches = false;
+                        break;
+                    }
+                }
+
+                if (!matches) continue;
+
+                operator_token->text = pattern;
+                for (std::size_t offset = 1; offset < pattern_size; ++offset) {
+                    tokens[index + offset]->redundant = true;
+                }
+
+                break;
             }
         }
     }
@@ -277,9 +398,13 @@ namespace lexer{
 
         slice_tokens(text, file_id, tokens, wrapper_indicies, number_indicies, newline_indicies);
         
-        combine_numerical_texts(tokens, file_id, number_indicies);
+        combine_numerical_texts(tokens, number_indicies);
+
+        combine_hex_prefix(tokens, number_indicies);
 
         combine_newlines(tokens, newline_indicies);
+
+        combine_operator_sequences(tokens);
         
         wrap_tokens(tokens, wrapper_indicies);
 
