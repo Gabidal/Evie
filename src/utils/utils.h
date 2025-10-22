@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <stdexcept>
 #include <algorithm>
+#include <vector>
 
 namespace utils {
 
@@ -120,137 +121,203 @@ namespace utils {
         }
     };
 
+    class range {
+    public:
+        int32_t min;
+        int32_t max;
+
+        range(int32_t Min = 0, int32_t Max = 0) : min(Min), max(Max) {}
+
+        range operator+(const range& other) const noexcept { return range(min + other.min, max + other.max); }
+    
+        range& operator+=(const range& other) { min += other.min; max += other.max; return *this; }
+
+        range operator-(const range& other) const noexcept { return range(min - other.min, max - other.max); }
+
+        range& operator-=(const range& other) { min -= other.min; max -= other.max; return *this; }
+
+        // Union
+        range operator|(const range& other) const noexcept { return range(std::min(min, other.min), std::max(max, other.max)); }
+        
+        // Union
+        range& operator|=(const range& other) { min = std::min(min, other.min); max = std::max(max, other.max); return *this; }
+        
+        // Intersection
+        range operator&(const range& other) const noexcept { return range(std::max(min, other.min), std::min(max, other.max)); }
+        
+        // Intersection
+        range& operator&=(const range& other) { min = std::max(min, other.min); max = std::min(max, other.max); return *this; }
+
+        bool operator==(const range& other) const noexcept { return min == other.min && max == other.max; }
+
+        bool operator!=(const range& other) const noexcept { return !(*this == other); }
+
+        bool contains(int32_t val) const noexcept {
+            return min <= val && max >= val;
+        }
+
+        bool inside(const range& val) const noexcept {
+            return min <= val.min && max >= val.max;
+        }
+
+    };
+
     /**
-     * Instances an view to an larger list, for the caller to know how much the callee allocated further from the given view.
+     * Linear space set, giving you the ability to request for sub-sets from this set
      */
-    template<
-        typename listType,
-        typename innerType = typename listType::value_type
-    >
-    class listView {
+    template<typename container, typename value = typename container::value_type>
+    class set {
     protected:
-        innerType* head;            // pointer to the first element of the current view window
-        const std::size_t capacity; // total number of elements accessible from head
-        std::size_t size;           // negotiable ending index of the view
+        const value head;              // pointer to the first element of the parent set
+        const range capacity;           // parent set size, e.g actual heap limits.
+        range size;                     // negotiable and virtual set inside the parent set.
+
+        set(const value H, range C, range S) : head(H), capacity(C), size(S) {}    // Internal shenanigans
     public:
     
-        /**
-         * @brief Creates a view anchored at @p startIndex with an optional initial size.
-         * @param realList Source container the view references.
-         * @param startIndex Index in @p realList where the view begins.
-         * @param viewSize Initial number of elements exposed by the view.
-         * @throws std::out_of_range If @p startIndex exceeds @p realList boundaries.
-         */
-        listView(listType& realList, std::size_t startIndex, std::size_t viewSize = 1) : 
-            head(realList.data() + std::min(startIndex, realList.size())), 
-            capacity(realList.size() - std::min(startIndex, realList.size())),
-            size(viewSize) 
+        set(container& realList, range area) : 
+            head(realList.data()),                                  // Absolute pointer to the heap start
+            capacity(0, static_cast<int32_t>(realList.size())),     // Full size of the parent list
+            size(area)                                              // Initial set size inside the parent set [area.x, area.y]
         {
-            if (startIndex > realList.size()) throw std::out_of_range("listView: start index out of range");
-            if (size > capacity) size = capacity;  // auto clamp, could break
+            if (!size.inside(capacity)) throw std::out_of_range("set: start index out of range");
+        }
+
+        const value& operator[](std::size_t index) const {
+            if (!size.contains(index)) throw std::out_of_range("set: index out of range");
+            return *(head + size.min + static_cast<int32_t>(index));
+        }
+
+        bool check(range direction) {
+            try {
+                (void)((*this) | direction);
+                return true;
+            }
+            catch(const std::out_of_range&) {
+                return false;
+            }
+        }
+
+        // Creates an union and returns it if fit
+        set operator|(const range area) const {
+            range newSize = size | area;
+            if (!newSize.inside(capacity)) throw std::out_of_range("set: union out of range");
+            return set(head, capacity, newSize);
+        }
+
+        // Creates an intersection and returns it if fit
+        set operator&(const range area) const {
+            range newSize = size & area;
+            if (!newSize.inside(capacity)) throw std::out_of_range("set: intersection out of range");
+            return set(head, capacity, newSize);
+        }
+
+        void operator|=(const range area) {
+            range newSize = size | area;
+            if (!newSize.inside(capacity)) throw std::out_of_range("set: union out of range");
+            size = newSize;
+        }
+
+        void operator&=(const range area) {
+            range newSize = size & area;
+            if (!newSize.inside(capacity)) throw std::out_of_range("set: intersection out of range");
+            size = newSize;
+        }
+    };
+
+    template<typename container, typename value = typename container::value_type>
+    class superSet {
+        using subset = set<container, value>;   // Less writing yee
+
+        superSet() {}   // Internal shenanigans
+    public:
+        std::vector<subset> subsets;
+        range capacity;
+        range size;
+
+        superSet(const std::vector<subset>& sets, range area) : subsets(sets), capacity(cap) {
+            rebuildCache();
+        }
+
+        const value& operator[](std::size_t index) const {
+            auto it = std::upper_bound(cache.begin(), cache.end(), index);
+            if (it == cache.begin()) throw std::out_of_range("superSet: index too small");
+            std::size_t idx = std::distance(cache.begin(), it) - 1;
+            return subsets[idx][index - cache[idx]];
+        }
+
+        void add(subset& s) {
+            subsets.push_back(s);
+            rebuildCache();
+        }
+
+        // Creates an union and returns it if fit
+        superSet operator|(subset& s) const {
+            superSet ss = *this;
+            ss.add(s);
+            return ss;
+        }
+
+        superSet& operator|=(subset& s) {
+            add(s);
+            return *this;
+        }
+
+        superSet operator&(subset& s) {
+            superSet ss;
+
+            for (auto& current : subsets) {
+                range intersection = current.size & s.size;
+                minArea &= intersection;
+                
+                // Ensure intersection exists (non-empty range)
+                if (intersection.min < intersection.max && intersection.inside(current.capacity)) {
+                    ss.subsets.emplace_back(current.head, current.capacity, intersection);
+                }
+            }
+
+            ss.rebuildCache();
+            return ss;
+        }
+
+        superSet& operator&=(subSet& s) {
+            std::vector<subset> newSubsets;
+
+            for (auto& current : subsets) {
+                range intersection = current.size & s.size;
+
+                // Ensure intersection exists (non-empty range)
+                if (intersection.min < intersection.max && intersection.inside(current.capacity)) {
+                    newSubsets.emplace_back(current.head, current.capacity, intersection);
+                }
+            }
+
+            subsets = std::move(newSubsets);
+            ss.rebuildCache();
+            return *this;
         }
 
     private:
-        listView(innerType* baseHead, std::size_t baseCapacity, std::size_t viewSize) : head(baseHead), capacity(baseCapacity), size(viewSize) {
-            if (size > capacity) size = capacity;
-        }
+        std::vector<std::size_t> cache; // cache[i] = total size of subsets[0..i-1]
 
-    public:
-    
-        /**
-         * @brief Extends the current view by reserving additional elements.
-         * @param additionalSize Number of extra slots requested for the view.
-         * @return True when the extension fits within the underlying container.
-         */
-        bool allocate(std::size_t additionalSize) {
-            if (size + additionalSize > capacity) return false;
+        // Each time the super set is changed this needs to be run.
+        void rebuildCache() {
+            for (auto& c : ranges) capacity |= c.capacity;      // Compute max capacity
+            for (auto& s : ranges) size |= s.size;              // Compute max size
 
-            size += additionalSize;
+            // Sanity check
+            if (!size.inside(capacity))
+                throw std::out_of_range("superSet: initial size exceeds capacity");
 
-            return true;
-        }
-
-        /**
-         * @brief Provides read access to an element in the bounded view.
-         * @param index Relative index inside the view window.
-         * @return Const reference to the requested element.
-         * @throws std::out_of_range If @p index lies outside the whole parent view.
-         */
-        const innerType& operator[](std::size_t index) const {
-            // Since this operator is used to check wether the specific index contains some value we can allow the parent window.
-            if (index >= capacity) throw std::out_of_range("listView: index out of range");
-            return head[index];
-        }
-
-        /**
-         * @brief Provides write access to an element in the bounded view.
-         * @param index Relative index inside the view window. If this is outside the active view size, tries to allocate to fit.
-         * @return Reference to the requested element.
-         * @throws std::out_of_range If @p index lies outside the active view and allocatable size.
-         */
-        innerType& operator[](std::size_t index) {
-            if (index >= size && !allocate(index - size + 1)) {
-                throw std::out_of_range("listView: index out of range");
+            cache.clear();
+            cache.reserve(subsets.size());
+            std::size_t sum = 0;
+            for (auto& s : subsets) {
+                cache.push_back(sum);
+                sum += s.size.y - s.size.x; // effective size
             }
-            return head[index];
         }
-
-        /**
-         * @brief Creates a child view that starts at @p subStart within the current view.
-         * @param subStart Offset relative to the current view start.
-         * @param subSize Desired size of the child view; auto-clamped if needed.
-         * @return A new view referencing the requested sub-range.
-         * @throws std::out_of_range If @p subStart exceeds the current view size.
-         */
-        listView subView(std::size_t subStart, std::size_t subSize = 1) const {
-            if (subStart >= size) throw std::out_of_range("listView: subView start index out of range");
-            if (subStart + subSize > size) subSize = size - subStart;  // auto clamp, could break
-            return listView(head + subStart, capacity - subStart, subSize);
-        }
-
-        /**
-         * @brief Returns the exclusive end index of the view into the underlying list.
-         * @return Exclusive upper bound inside the source container relative to head.
-         */
-        std::size_t end() const noexcept { return size; }
-
-        /**
-         * @brief Returns an iterator to the first element in the view.
-         * @return Pointer to the beginning of the view window.
-         */
-        innerType* begin() noexcept { return head; }
-
-        /**
-         * @brief Returns a const iterator to the first element in the view.
-         * @return Const pointer to the beginning of the view window.
-         */
-        const innerType* begin() const noexcept { return head; }
-
-        /**
-         * @brief Returns a const iterator to the first element in the view.
-         * @return Const pointer to the beginning of the view window.
-         */
-        const innerType* cbegin() const noexcept { return head; }
-
-        /**
-         * @brief Returns an iterator one past the last element in the view.
-         * @return Pointer to the element following the view window.
-         */
-        innerType* endIter() noexcept { return head + size; }
-
-        /**
-         * @brief Returns a const iterator one past the last element in the view.
-         * @return Const pointer to the element following the view window.
-         */
-        const innerType* endIter() const noexcept { return head + size; }
-
-        /**
-         * @brief Returns a const iterator one past the last element in the view.
-         * @return Const pointer to the element following the view window.
-         */
-        const innerType* cend() const noexcept { return head + size; }
     };
-
 }
 
 // Auto un-namespace locked utilities:

@@ -26,6 +26,7 @@ lib_sources = [
   # Core utilities
   '../src/docker/docker.cpp',
   '../src/lexer/lexer.cpp',
+  '../src/parser/parser.cpp',
 ]
 
 # Use Meson's buildtype instead of a custom TYPE variable

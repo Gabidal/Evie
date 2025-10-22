@@ -77,6 +77,8 @@
         "fstream": "cpp",
         "iostream": "cpp",
         "ranges": "cpp",
-        "text_encoding": "cpp"
+        "text_encoding": "cpp",
+        "__bit_reference": "cpp",
+        "filesystem": "cpp"
     }
 }

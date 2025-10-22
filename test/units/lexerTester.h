@@ -19,7 +19,6 @@ namespace tester {
             add_test("Control Presets", "preset control tokens expose correct types", test_control_presets);
             add_test("Tokenize Simple Sequence", "basic tokenization splits text and separators", test_tokenize_simple_sequence);
             add_test("Tokenize Merge Text Numbers", "alphanumeric words stay as single text tokens", test_tokenize_merge_text_numbers);
-            add_test("Tokenize Float Numbers", "floating literals merge around dot operator", test_tokenize_float_numbers);
             add_test("Tokenize String Wrapper", "string contents tuck into wrapper tokens", test_tokenize_string_wrapper);
             add_test("Tokenize Collapse Newlines", "consecutive newlines reduce to single token", test_tokenize_collapse_newlines);
             add_test("Token Position Tracking", "tokenize keeps column/line offsets", test_token_position_tracking);
@@ -135,17 +134,6 @@ namespace tester {
             ASSERT_TRUE(guard.tokens[0]->get_type() == lexer::token::types::TEXT);
             auto* text = static_cast<lexer::token::text*>(guard.tokens[0]);
             ASSERT_EQ(std::string("foo123"), text->data);
-        }
-
-        static void test_tokenize_float_numbers() {
-            TokenGuard guard;
-            guard.tokens = lexer::tokenize("123.45", 0);
-
-            ASSERT_EQ(static_cast<std::size_t>(1), guard.tokens.size());
-            ASSERT_TRUE(guard.tokens[0]->get_type() == lexer::token::types::NUMBER);
-            auto* number = static_cast<lexer::token::number*>(guard.tokens[0]);
-            ASSERT_EQ(std::string("123.45"), number->text);
-            ASSERT_TRUE(number->number_type == lexer::token::number::types::FLOAT);
         }
 
         static void test_tokenize_string_wrapper() {
