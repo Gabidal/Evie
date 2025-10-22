@@ -1,6 +1,6 @@
 #include "units/utils.h"
 #include "units/bitmaskTester.h"
-#include "units/listViewTester.h"
+#include "units/setTester.h"
 #include "units/lexerTester.h"
 
 int main() {
@@ -11,7 +11,7 @@ int main() {
     try {
         tester::utils::run_all_tests({
             new tester::bitmaskTester(),
-            new tester::listViewTester(),
+            new tester::setTester(),
             new tester::lexerTester(),
         });
     } catch (const std::exception& e) {

@@ -162,23 +162,26 @@ namespace utils {
 
     };
 
+    template<typename, typename>
+    class superSet;
+
     /**
      * Linear space set, giving you the ability to request for sub-sets from this set
      */
     template<typename container, typename value = typename container::value_type>
     class set {
     protected:
-        const value head;              // pointer to the first element of the parent set
+        const value* head;               // pointer to the first element of the parent set
         const range capacity;           // parent set size, e.g actual heap limits.
         range size;                     // negotiable and virtual set inside the parent set.
 
-        set(const value H, range C, range S) : head(H), capacity(C), size(S) {}    // Internal shenanigans
+        set(const value* H, range C, range S) : head(H), capacity(C), size(S) {}    // Internal shenanigans
     public:
     
-        set(container& realList, range area) : 
+        set(container& realList, range area = {0, 0}) : 
             head(realList.data()),                                  // Absolute pointer to the heap start
             capacity(0, static_cast<int32_t>(realList.size())),     // Full size of the parent list
-            size(area)                                              // Initial set size inside the parent set [area.x, area.y]
+            size(area)                                              // Initial set size inside the parent set [area.min, area.max]
         {
             if (!size.inside(capacity)) throw std::out_of_range("set: start index out of range");
         }
@@ -223,6 +226,8 @@ namespace utils {
             if (!newSize.inside(capacity)) throw std::out_of_range("set: intersection out of range");
             size = newSize;
         }
+
+        friend class superSet<container, value>;
     };
 
     template<typename container, typename value = typename container::value_type>
@@ -235,7 +240,7 @@ namespace utils {
         range capacity;
         range size;
 
-        superSet(const std::vector<subset>& sets, range area) : subsets(sets), capacity(cap) {
+        superSet(const std::vector<subset>& sets, range area) : subsets(sets), capacity(area) {
             rebuildCache();
         }
 
@@ -268,11 +273,10 @@ namespace utils {
 
             for (auto& current : subsets) {
                 range intersection = current.size & s.size;
-                minArea &= intersection;
                 
                 // Ensure intersection exists (non-empty range)
                 if (intersection.min < intersection.max && intersection.inside(current.capacity)) {
-                    ss.subsets.emplace_back(current.head, current.capacity, intersection);
+                    ss.subsets.emplace_back(std::move(set<container, value>(current.head, current.capacity, intersection)));
                 }
             }
 
@@ -280,7 +284,7 @@ namespace utils {
             return ss;
         }
 
-        superSet& operator&=(subSet& s) {
+        superSet& operator&=(subset& s) {
             std::vector<subset> newSubsets;
 
             for (auto& current : subsets) {
@@ -288,12 +292,12 @@ namespace utils {
 
                 // Ensure intersection exists (non-empty range)
                 if (intersection.min < intersection.max && intersection.inside(current.capacity)) {
-                    newSubsets.emplace_back(current.head, current.capacity, intersection);
+                    newSubsets.emplace_back(std::move(set<container, value>(current.head, current.capacity, intersection)));
                 }
             }
 
             subsets = std::move(newSubsets);
-            ss.rebuildCache();
+            rebuildCache();
             return *this;
         }
 
@@ -302,8 +306,8 @@ namespace utils {
 
         // Each time the super set is changed this needs to be run.
         void rebuildCache() {
-            for (auto& c : ranges) capacity |= c.capacity;      // Compute max capacity
-            for (auto& s : ranges) size |= s.size;              // Compute max size
+            for (auto& c : subsets) capacity |= c.capacity;      // Compute max capacity
+            for (auto& s : subsets) size |= s.size;              // Compute max size
 
             // Sanity check
             if (!size.inside(capacity))
@@ -314,7 +318,7 @@ namespace utils {
             std::size_t sum = 0;
             for (auto& s : subsets) {
                 cache.push_back(sum);
-                sum += s.size.y - s.size.x; // effective size
+                sum += s.size.max - s.size.min; // effective size
             }
         }
     };

@@ -53,11 +53,11 @@ namespace parser {
             base* parent;
             std::string_view symbol;
 
-            base(type Flags, base* Parent = nullptr, std::string_view Symbol) : parent(Parent), flags(Flags), symbol(Symbol) {}
+            base(type Flags, base* Parent = nullptr, std::string_view Symbol = "") : flags(Flags), parent(Parent), symbol(Symbol) {}
 
             virtual ~base() = default;  // For our fallen comrades 🥀🥀🥀 smh tsm
 
-            [[nodiscard]] virtual base* findClosestDefinition(std::string_view Symbol) const {
+            [[nodiscard]] virtual base* findClosestDefinition(std::string_view /* Symbol */) const {
                 // Default behaviour is to pipe this call to the parent hoping it might hit the scope class.
                 return parent ? parent->findClosestDefinition(symbol) : nullptr;
             }

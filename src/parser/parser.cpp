@@ -2,7 +2,7 @@
 
 namespace parser {
 
-    unit::base::base(unit::lexerOutput& lexedTokens) : window(lexedTokens, lexedTokens.size()) {
+    unit::base::base(unit::lexerOutput& lexedTokens) : window(lexedTokens) {
 
     }
 
@@ -20,7 +20,7 @@ namespace parser {
 
     }
 
-    void token::base::factory(unit::base& currentUnit) {
+    void token::base::factory(unit::base& /* currentUnit */) {
 
     }
 
