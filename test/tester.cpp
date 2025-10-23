@@ -11,8 +11,8 @@ int main() {
     try {
         tester::utils::run_all_tests({
             new tester::bitmaskTester(),
-            new tester::setTester(),
             new tester::lexerTester(),
+            new tester::setTester(),
         });
     } catch (const std::exception& e) {
         std::cout << tester::utils::colorText("Test suite crashed with exception: ", GGUI::COLOR::RED) << e.what() << "\n";

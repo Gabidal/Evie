@@ -132,10 +132,6 @@ namespace utils {
     
         range& operator+=(const range& other) { min += other.min; max += other.max; return *this; }
 
-        range operator-(const range& other) const noexcept { return range(min - other.min, max - other.max); }
-
-        range& operator-=(const range& other) { min -= other.min; max -= other.max; return *this; }
-
         // Union
         range operator|(const range& other) const noexcept { return range(std::min(min, other.min), std::max(max, other.max)); }
         
@@ -148,15 +144,74 @@ namespace utils {
         // Intersection
         range& operator&=(const range& other) { min = std::max(min, other.min); max = std::min(max, other.max); return *this; }
 
+        // Symmetric Difference
+        std::vector<range> operator^(const range& other) const noexcept {
+            std::vector<range> result;
+
+            range inter = *this & other;
+            if (inter.min >= inter.max) {
+                // No overlap, return both
+                result.push_back(*this);
+                result.push_back(other);
+                return result;
+            }
+
+            // Left segment
+            if (min < inter.min) result.emplace_back(min, inter.min);
+
+            // Right segment
+            if (inter.max < max) result.emplace_back(inter.max, max);
+
+            // Other's left segment
+            if (other.min < inter.min) result.emplace_back(other.min, inter.min);
+
+            // Other's right segment
+            if (inter.max < other.max) result.emplace_back(inter.max, other.max);
+
+            return result;
+        }
+
+        // Complement / Difference
+        std::vector<range> operator-(const range& other) const noexcept {
+            std::vector<range> result;
+
+            range inter = *this & other;
+            if (inter.min >= inter.max) {
+                // No overlap, return the whole range
+                result.push_back(*this);
+                return result;
+            }
+
+            // Left segment
+            if (min < inter.min) result.emplace_back(min, inter.min);
+
+            // Right segment
+            if (inter.max < max) result.emplace_back(inter.max, max);
+
+            return result;
+        }
+
         bool operator==(const range& other) const noexcept { return min == other.min && max == other.max; }
 
         bool operator!=(const range& other) const noexcept { return !(*this == other); }
+
+        // Subset check (<=) - this range is subset of or equal to other
+        bool operator<=(const range& other) const noexcept { return min >= other.min && max <= other.max; }
+
+        // Proper subset check (<) - this range is proper subset of other
+        bool operator<(const range& other) const noexcept { return (*this <= other) && (*this != other); }
+
+        // Superset check (>=) - this range is superset of or equal to other
+        bool operator>=(const range& other) const noexcept { return min <= other.min && max >= other.max; }
+
+        // Proper superset check (>) - this range is proper superset of other
+        bool operator>(const range& other) const noexcept { return (*this >= other) && (*this != other); }
 
         bool contains(int32_t val) const noexcept {
             return min <= val && max >= val;
         }
 
-        bool inside(const range& val) const noexcept {
+        bool contains(const range& val) const noexcept {
             return min <= val.min && max >= val.max;
         }
 
@@ -172,8 +227,8 @@ namespace utils {
     class set {
     protected:
         const value* head;               // pointer to the first element of the parent set
-        const range capacity;           // parent set size, e.g actual heap limits.
-        range size;                     // negotiable and virtual set inside the parent set.
+        range capacity;                 // parent set size, e.g actual heap limits.
+        range size;                     // negotiable and virtual set contains the parent set.
 
         set(const value* H, range C, range S) : head(H), capacity(C), size(S) {}    // Internal shenanigans
     public:
@@ -181,14 +236,14 @@ namespace utils {
         set(container& realList, range area = {0, 0}) : 
             head(realList.data()),                                  // Absolute pointer to the heap start
             capacity(0, static_cast<int32_t>(realList.size())),     // Full size of the parent list
-            size(area)                                              // Initial set size inside the parent set [area.min, area.max]
+            size(area)                                              // Initial set size contains the parent set [area.min, area.max]
         {
-            if (!size.inside(capacity)) throw std::out_of_range("set: start index out of range");
+            if (!capacity.contains(size)) throw std::out_of_range("set: start index out of range");
         }
 
         const value& operator[](std::size_t index) const {
             if (!size.contains(index)) throw std::out_of_range("set: index out of range");
-            return *(head + size.min + static_cast<int32_t>(index));
+            return *(head + static_cast<int32_t>(index));
         }
 
         bool check(range direction) {
@@ -201,30 +256,82 @@ namespace utils {
             }
         }
 
+        range getSize() const { return size; }
+        range getCapacity() const { return capacity; }
+
         // Creates an union and returns it if fit
         set operator|(const range area) const {
             range newSize = size | area;
-            if (!newSize.inside(capacity)) throw std::out_of_range("set: union out of range");
+            if (!capacity.contains(newSize)) throw std::out_of_range("set: union out of range");
             return set(head, capacity, newSize);
         }
 
         // Creates an intersection and returns it if fit
         set operator&(const range area) const {
             range newSize = size & area;
-            if (!newSize.inside(capacity)) throw std::out_of_range("set: intersection out of range");
+            if (!capacity.contains(newSize)) throw std::out_of_range("set: intersection out of range");
             return set(head, capacity, newSize);
         }
 
         void operator|=(const range area) {
             range newSize = size | area;
-            if (!newSize.inside(capacity)) throw std::out_of_range("set: union out of range");
+            if (!capacity.contains(newSize)) throw std::out_of_range("set: union out of range");
             size = newSize;
         }
 
         void operator&=(const range area) {
             range newSize = size & area;
-            if (!newSize.inside(capacity)) throw std::out_of_range("set: intersection out of range");
+            if (!capacity.contains(newSize)) throw std::out_of_range("set: intersection out of range");
             size = newSize;
+        }
+
+        std::vector<set<container, value>> operator^(const range area) const {
+            std::vector<set<container, value>> resultSets;
+
+            auto leftovers = size ^ area;
+
+            for (auto& r : leftovers) {
+                if (capacity.contains(r)) {
+                    resultSets.emplace_back(std::move(set<container, value>(head, capacity, r)));
+                }
+            }
+
+            return resultSets;
+        }
+
+        // Creates a complement/difference and returns it if fit
+        std::vector<set<container, value>> operator-(const range area) const {
+            std::vector<set<container, value>> resultSets;
+
+            auto leftovers = size - area;
+
+            for (auto& r : leftovers) {
+                if (capacity.contains(r)) {
+                    resultSets.emplace_back(std::move(set<container, value>(head, capacity, r)));
+                }
+            }
+
+            return resultSets;
+        }
+
+        // Subset check (<=) - this set is subset of or equal to given range
+        bool operator<=(const range area) const noexcept {
+            return size <= area;
+        }
+
+        // Proper subset check (<) - this set is proper subset of given range
+        bool operator<(const range area) const noexcept {
+            return size < area;
+        }
+
+        // Superset check (>=) - this set is superset of or equal to given range
+        bool operator>=(const range area) const noexcept {
+            return size >= area;
+        }
+
+        // Proper superset check (>) - this set is proper superset of given range
+        bool operator>(const range area) const noexcept {
+            return size > area;
         }
 
         friend class superSet<container, value>;
@@ -233,14 +340,16 @@ namespace utils {
     template<typename container, typename value = typename container::value_type>
     class superSet {
         using subset = set<container, value>;   // Less writing yee
-
-        superSet() {}   // Internal shenanigans
-    public:
-        std::vector<subset> subsets;
+        
         range capacity;
         range size;
+        
+        superSet() {}   // Internal shenanigans
+    public:
 
-        superSet(const std::vector<subset>& sets, range area) : subsets(sets), capacity(area) {
+        std::vector<subset> subsets;
+
+        superSet(const std::vector<subset>& sets, range area = {0, 0}) : capacity(area), subsets(sets) {
             rebuildCache();
         }
 
@@ -248,13 +357,18 @@ namespace utils {
             auto it = std::upper_bound(cache.begin(), cache.end(), index);
             if (it == cache.begin()) throw std::out_of_range("superSet: index too small");
             std::size_t idx = std::distance(cache.begin(), it) - 1;
-            return subsets[idx][index - cache[idx]];
+            return subsets[idx][index];
         }
 
         void add(subset& s) {
             subsets.push_back(s);
             rebuildCache();
         }
+
+        range getSize() const { return size; }
+        range getCapacity() const { return capacity; }
+
+
 
         // Creates an union and returns it if fit
         superSet operator|(subset& s) const {
@@ -275,7 +389,7 @@ namespace utils {
                 range intersection = current.size & s.size;
                 
                 // Ensure intersection exists (non-empty range)
-                if (intersection.min < intersection.max && intersection.inside(current.capacity)) {
+                if (intersection.min < intersection.max && current.capacity.contains(intersection)) {
                     ss.subsets.emplace_back(std::move(set<container, value>(current.head, current.capacity, intersection)));
                 }
             }
@@ -291,7 +405,7 @@ namespace utils {
                 range intersection = current.size & s.size;
 
                 // Ensure intersection exists (non-empty range)
-                if (intersection.min < intersection.max && intersection.inside(current.capacity)) {
+                if (intersection.min < intersection.max && current.capacity.contains(intersection)) {
                     newSubsets.emplace_back(std::move(set<container, value>(current.head, current.capacity, intersection)));
                 }
             }
@@ -301,30 +415,156 @@ namespace utils {
             return *this;
         }
 
+        superSet operator^(subset& s) {
+            superSet ss;
+
+            for (auto& current : subsets) {
+                auto intersections = current.getSize() ^ s.getSize(); // vector of non-overlapping ranges
+
+                // If no intersection, keep the whole subset
+                if (intersections.empty()) {
+                    continue; // everything is overlapped, skip
+                }
+
+                // Add all resulting non-overlapping segments
+                for (auto& r : intersections) {
+                    ss.subsets.emplace_back(std::move(set<container, value>(current.head, current.getCapacity(), r)));
+                }
+            }
+
+            // Now handle the parts of 's' not overlapping with any subset
+            std::vector<range> sParts = { s.getSize() };
+            for (auto& current : subsets) {
+                std::vector<range> newParts;
+                for (auto& part : sParts) {
+                    auto leftover = part ^ (current.getSize() & s.getSize());
+                    newParts.insert(newParts.end(), leftover.begin(), leftover.end());
+                }
+                sParts = std::move(newParts);
+            }
+
+            for (auto& r : sParts) {
+                if (r.min < r.max) {
+                    ss.subsets.emplace_back(std::move(set<container, value>(s.head, s.getCapacity(), r)));
+                }
+            }
+
+            ss.rebuildCache();
+            return ss;
+        }
+
+        // Complement / Difference
+        superSet operator-(subset& s) {
+            superSet ss;
+
+            for (auto& current : subsets) {
+                auto differences = current.getSize() - s.getSize(); // vector of non-overlapping ranges
+
+                // Add all resulting non-overlapping segments
+                for (auto& r : differences) {
+                    if (current.capacity.contains(r)) {
+                        ss.subsets.emplace_back(std::move(set<container, value>(current.head, current.capacity, r)));
+                    }
+                }
+            }
+
+            ss.rebuildCache();
+            return ss;
+        }
+
+        superSet& operator-=(subset& s) {
+            std::vector<subset> newSubsets;
+
+            for (auto& current : subsets) {
+                auto differences = current.getSize() - s.getSize(); // vector of non-overlapping ranges
+
+                // Add all resulting non-overlapping segments
+                for (auto& r : differences) {
+                    if (current.capacity.contains(r)) {
+                        newSubsets.emplace_back(std::move(set<container, value>(current.head, current.capacity, r)));
+                    }
+                }
+            }
+
+            subsets = std::move(newSubsets);
+            rebuildCache();
+            return *this;
+        }
+
+        // Subset check (<=) - all subsets are contained within given subset
+        bool operator<=(const subset& s) const noexcept {
+            for (const auto& current : subsets) {
+                if (!(current.size <= s.size)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        // Proper subset check (<) - all subsets are properly contained within given subset
+        bool operator<(const subset& s) const noexcept {
+            return (*this <= s) && (size != s.size);
+        }
+
+        // Superset check (>=) - this superset contains the given subset
+        bool operator>=(const subset& s) const noexcept {
+            return size >= s.size;
+        }
+
+        // Proper superset check (>) - this superset properly contains the given subset
+        bool operator>(const subset& s) const noexcept {
+            return (size > s.size);
+        }
+
     private:
         std::vector<std::size_t> cache; // cache[i] = total size of subsets[0..i-1]
 
         // Each time the super set is changed this needs to be run.
         void rebuildCache() {
-            for (auto& c : subsets) capacity |= c.capacity;      // Compute max capacity
-            for (auto& s : subsets) size |= s.size;              // Compute max size
 
-            // Sanity check
-            if (!size.inside(capacity))
-                throw std::out_of_range("superSet: initial size exceeds capacity");
+            // Respect manual ranges.
+            if (capacity == range(0, 0)) {
+                capacity = range(0, 0);
+                for (auto& c : subsets) capacity |= c.capacity;      // Compute max capacity
+            }
+
+            size = range(0, 0);
+            for (auto& s : subsets) size |= s.size;                                     // Compute max size
+
+            std::sort(subsets.begin(), subsets.end(), [](const subset& a, const subset& b) { return a.getSize().min < b.getSize().min; });
 
             cache.clear();
-            cache.reserve(subsets.size());
-            std::size_t sum = 0;
+
             for (auto& s : subsets) {
-                cache.push_back(sum);
-                sum += s.size.max - s.size.min; // effective size
+                cache.push_back(s.getSize().min); // absolute start of each subset
             }
+
+            if (!capacity.contains(size))
+                throw std::out_of_range("superSet: initial size exceeds capacity");
         }
     };
 }
 
 // Auto un-namespace locked utilities:
+
+template<typename container, typename value = typename container::value_type>
+utils::superSet<container, value> operator|(const utils::set<container, value>& lhs, const utils::set<container, value>& rhs) {
+    std::vector<utils::set<container, value>> subsets;
+    subsets.reserve(2);
+    subsets.push_back(lhs);
+    subsets.push_back(rhs);
+
+    return utils::superSet<container, value>(subsets);
+}
+
+template<typename container, typename value = typename container::value_type>
+utils::set<container, value> operator&(const utils::set<container, value>& lhs, const utils::set<container, value>& rhs) {
+    utils::range intersection = lhs.getSize() & rhs.getSize();
+    if (!lhs.getCapacity().contains(intersection) || !rhs.getCapacity().contains(intersection))
+        throw std::out_of_range("superSet &: intersection out of range");
+
+    return utils::set<container, value>(lhs.getCapacity().min == rhs.getCapacity().min ? lhs & intersection : rhs & intersection);
+}
 
 template<typename enumType, typename containerSize = std::underlying_type_t<enumType>>
 constexpr utils::bitmask<enumType, containerSize> operator|(enumType a, enumType b) noexcept {
