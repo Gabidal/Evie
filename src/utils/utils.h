@@ -128,6 +128,8 @@ namespace utils {
 
         range(int32_t Min = 0, int32_t Max = 0) : min(Min), max(Max) {}
 
+        uint32_t length() const noexcept { return static_cast<uint32_t>(max - min); }
+
         range operator+(const range& other) const noexcept { return range(min + other.min, max + other.max); }
     
         range& operator+=(const range& other) { min += other.min; max += other.max; return *this; }
@@ -261,6 +263,9 @@ namespace utils {
         range getSize() const { return size; }
         range getCapacity() const { return capacity; }
 
+        range begin() const noexcept { return {size.min, size.min}; }
+        range end() const noexcept { return {size.max, size.max}; }
+
         // Creates an union and returns it if fit
         set operator|(const range area) const {
             range newSize = size | area;
@@ -371,12 +376,13 @@ namespace utils {
 
         range getSize() const { return size; }
         range getCapacity() const { return capacity; }
+        uint32_t getMaxSize() const { return static_cast<uint32_t>(capacity.max - capacity.min); }
 
         range begin() const noexcept { return {size.min, size.min}; }
         range end() const noexcept { return {size.max, size.max}; }
 
         // Creates an union and returns it if fit
-        superSet operator|(subset& s) const {
+        superSet operator|(const subset& s) const {
             superSet ss = *this;
             ss.add(s);
             return ss;
@@ -391,7 +397,7 @@ namespace utils {
             return *this;
         }
 
-        superSet operator&(subset& s) {
+        superSet operator&(const subset& s) const {
             superSet ss;
 
             for (auto& current : subsets) {
@@ -428,7 +434,7 @@ namespace utils {
             return *this;
         }
 
-        superSet operator^(subset& s) {
+        superSet operator^(const subset& s) const {
             superSet ss;
 
             for (auto& current : subsets) {
@@ -466,7 +472,7 @@ namespace utils {
             return ss;
         }
 
-        superSet operator^(range r) {
+        superSet operator^(range r) const {
             // Require r in this, otherwise error
             if (!capacity.contains(r)) throw std::out_of_range("superSet: symmetric difference out of range");
 
@@ -484,7 +490,7 @@ namespace utils {
         }
 
         // Complement / Difference
-        superSet operator-(subset& s) {
+        superSet operator-(const subset& s) const {
             superSet ss;
 
             for (auto& current : subsets) {

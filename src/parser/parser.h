@@ -42,9 +42,15 @@ namespace parser {
 
             void factory();
 
+            template<typename lexerTokenType>
+            lexerTokenType* at(uint32_t i) {
+                return dynamic_cast<lexerTokenType*>(tokens[i]);
+            }
+
             base operator&(utils::range limit);
         };
 
+        ::utils::range findSubsequentTokens(base& /*Current Translation Unit*/, lexer::token::types /*Token type*/);
     }
 
     namespace token {
@@ -58,20 +64,21 @@ namespace parser {
             SCOPE,          // Any occurrence of a scope block (function, class, namespace, parenthesis, etc).
         };
         
+        namespace scope {
+            class base;
+        }
+
         class base {
         public:
             type flags;
-            base* parent;
+            scope::base* parent;
             std::string_view symbol;
 
-            base(type Flags, base* Parent = nullptr, std::string_view Symbol = "") : flags(Flags), parent(Parent), symbol(Symbol) {}
+            base(type Flags, scope::base* Parent = nullptr, std::string_view Symbol = "") : flags(Flags), parent(Parent), symbol(Symbol) {}
 
             virtual ~base() = default;  // For our fallen comrades 🥀🥀🥀 smh tsm
 
-            [[nodiscard]] virtual base* findClosestDefinition(std::string_view /* Symbol */) const {
-                // Default behaviour is to pipe this call to the parent hoping it might hit the scope class.
-                return parent ? parent->findClosestDefinition(symbol) : nullptr;
-            }
+            [[nodiscard]] virtual base* findClosestDefinition(std::string_view /* Symbol */) const;
             
             // Each token class introduces their own factory, which takes lexer::tokens as input and colors the area it will require which will be deleted upon exit.
             // Also Parent has to be a scope
@@ -85,11 +92,45 @@ namespace parser {
 
         class definition : public token::base {
         public:
-            
+            std::vector<std::string_view> inherited;
 
+            // Auto-adds itself to the current parent
+            definition(info Info, std::vector<std::string_view> toInherit);
             
             static void factory(unit::base& /*Current Translation Unit State*/);
         };
+
+        namespace scope {
+
+            enum class type {
+                UNKNOWN,
+                FUNCTION,
+                CLASS,
+                CONDITION,
+                LOOP,
+                PARENTHESIS
+            };
+
+            class base : public token::base {
+            public:
+                std::vector<token::base*> children;
+                utils::superSet<unit::lexerOutput> rawTokens;   // used by templates.
+
+                base(info Info, utils::superSet<unit::lexerOutput> RawTokens) : token::base(Info), rawTokens(RawTokens) {}
+
+                [[nodiscard]] token::base* findClosestDefinition(std::string_view Symbol) const override {
+                    // Search in current scope first
+                    for (auto it = children.rbegin(); it != children.rend(); ++it) {
+                        if ((*it)->flags == token::type::DEFINITION && (*it)->symbol == Symbol) {
+                            return *it;
+                        }
+                    }
+
+                    // Pipe to parent scope
+                    return parent ? parent->findClosestDefinition(Symbol) : nullptr;
+                }
+            };
+        }
 
         namespace Operator {
 
