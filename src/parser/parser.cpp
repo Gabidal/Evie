@@ -87,6 +87,7 @@ namespace parser {
             inherited.push_back(symbol);
         }
 
+        // Definition class automatically handles everything it needs to, keep this accessor in case we need to do some higher level abstract thingies.
         [[maybe_unused]] token::definition::base* newDefinition = new token::definition(
             token::info(
                 token::type::DEFINITION,
@@ -95,6 +96,9 @@ namespace parser {
             ),
             inherited
         );
+
+        // Now we exhaust the tokens needed to build this definition, but not he last token, since it will now represent an defined text token for later patterns to recognize.
+        currentUnit.tokens ^= utils::range(textTokens.min, textTokens.max - 1);
     }
 
     void token::Operator::base::factory(unit::base& currentUnit) {
