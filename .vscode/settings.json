@@ -79,6 +79,7 @@
         "ranges": "cpp",
         "text_encoding": "cpp",
         "__bit_reference": "cpp",
-        "filesystem": "cpp"
+        "filesystem": "cpp",
+        "__node_handle": "cpp"
     }
 }

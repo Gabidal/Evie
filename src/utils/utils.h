@@ -9,10 +9,10 @@
 
 namespace utils {
 
-    template<typename enumType, typename containerSize = std::underlying_type_t<enumType>>
+    template<typename enumType, typename valueType = std::underlying_type_t<enumType>>
     class bitmask {
     protected:
-        containerSize container = 0;
+        valueType container = 0;
     public:
         /**
          * @brief Initializes an empty bitmask with no flags set.
@@ -23,7 +23,7 @@ namespace utils {
          * @brief Initializes the bitmask with a single enumeration value.
          * @param value Enumeration flag used to seed the mask.
          */
-        constexpr bitmask(enumType value) noexcept : container(static_cast<containerSize>(value)) {}
+        constexpr bitmask(enumType value) noexcept : container(static_cast<valueType>(value)) {}
 
         /**
          * @brief Checks whether the mask matches exactly the provided flag.
@@ -31,7 +31,7 @@ namespace utils {
          * @return True when the stored bits equal @p value.
          */
         constexpr bool is(enumType value) const noexcept {
-            return container == static_cast<containerSize>(value);
+            return container == static_cast<valueType>(value);
         }
 
         /**
@@ -49,7 +49,7 @@ namespace utils {
          * @return True when every bit in @p value is present in the mask.
          */
         constexpr bool has(enumType value) const noexcept {
-            return (container & static_cast<containerSize>(value)) == static_cast<containerSize>(value);
+            return (container & static_cast<valueType>(value)) == static_cast<valueType>(value);
         }
 
         /**
@@ -61,7 +61,7 @@ namespace utils {
         template<typename OtherContainer>
         constexpr bool has(bitmask<enumType, OtherContainer> other) const noexcept {
             static_assert(
-                sizeof(OtherContainer) <= sizeof(containerSize),
+                sizeof(OtherContainer) <= sizeof(valueType),
                 "bitmask::has() requires the other container to be equal or smaller in size."
             );
 
@@ -77,7 +77,7 @@ namespace utils {
          */
         constexpr bitmask operator|(enumType value) const noexcept {
             bitmask b = *this;
-            b.container |= static_cast<containerSize>(value);
+            b.container |= static_cast<valueType>(value);
             return b;
         }
 
@@ -87,13 +87,13 @@ namespace utils {
          * @return Reference to the updated mask.
          */
         constexpr bitmask& operator|=(enumType value) noexcept {
-            container |= static_cast<containerSize>(value);
+            container |= static_cast<valueType>(value);
             return *this;
         }
 
         /**
          * @brief Combines two bitmasks into a new mask containing all bits from both.
-         * @param value Bitmask whose flags will be unioned.
+         * @param value Bitmask whose flags will be union'd.
          * @return New bitmask representing the union.
          */
         constexpr bitmask operator|(bitmask value) const noexcept {
@@ -116,7 +116,7 @@ namespace utils {
          * @brief Exposes the underlying storage value representing the set bits.
          * @return Stored container value.
          */
-        constexpr containerSize get() const noexcept {
+        constexpr valueType get() const noexcept {
             return container;
         }
     };
@@ -215,6 +215,8 @@ namespace utils {
             return min <= val.min && max >= val.max;
         }
 
+        // Used by for loops
+        void operator++() { ++min; ++max; }
     };
 
     template<typename, typename>
@@ -348,10 +350,12 @@ namespace utils {
     public:
 
         std::vector<subset> subsets;
-
+        
         superSet(const std::vector<subset>& sets, range area = {0, 0}) : capacity(area), subsets(sets) {
             rebuildCache();
         }
+
+        superSet(container& realList, range area = {0, 0}) : superSet(std::vector<subset>{ subset(realList, area) }, area) {}
 
         const value& operator[](std::size_t index) const {
             auto it = std::upper_bound(cache.begin(), cache.end(), index);
@@ -368,13 +372,18 @@ namespace utils {
         range getSize() const { return size; }
         range getCapacity() const { return capacity; }
 
-
+        range begin() const noexcept { return {size.min, size.min}; }
+        range end() const noexcept { return {size.max, size.max}; }
 
         // Creates an union and returns it if fit
         superSet operator|(subset& s) const {
             superSet ss = *this;
             ss.add(s);
             return ss;
+        }
+
+        superSet operator|(range r) const {
+            return (*this) | subset(nullptr, capacity, r);
         }
 
         superSet& operator|=(subset& s) {
@@ -396,6 +405,10 @@ namespace utils {
 
             ss.rebuildCache();
             return ss;
+        }
+
+        superSet operator&(range r) const {
+            return (*this) & subset(nullptr, capacity, r);
         }
 
         superSet& operator&=(subset& s) {
@@ -451,6 +464,23 @@ namespace utils {
 
             ss.rebuildCache();
             return ss;
+        }
+
+        superSet operator^(range r) {
+            // Require r in this, otherwise error
+            if (!capacity.contains(r)) throw std::out_of_range("superSet: symmetric difference out of range");
+
+            return (*this) ^ subset(nullptr, capacity, r);
+        }
+
+        superSet& operator^=(subset& s) {
+            *this = (*this) ^ s;
+            return *this;
+        }
+
+        superSet& operator^=(range r) {
+            *this = (*this) ^ r;
+            return *this;
         }
 
         // Complement / Difference
@@ -516,6 +546,8 @@ namespace utils {
             return (size > s.size);
         }
 
+        
+
     private:
         std::vector<std::size_t> cache; // cache[i] = total size of subsets[0..i-1]
 
@@ -543,9 +575,23 @@ namespace utils {
                 throw std::out_of_range("superSet: initial size exceeds capacity");
         }
     };
+
 }
 
 // Auto un-namespace locked utilities:
+
+template<typename enumType>
+constexpr bool operator<(enumType a, enumType b) noexcept {
+    using valueType = std::underlying_type_t<enumType>;
+    return static_cast<valueType>(a) < static_cast<valueType>(b);
+}
+
+template<typename enumType>
+constexpr enumType& operator++(enumType& a) noexcept {
+    using valueType = std::underlying_type_t<enumType>;
+    a = static_cast<enumType>(static_cast<valueType>(a) + 1);
+    return a;
+}
 
 template<typename container, typename value = typename container::value_type>
 utils::superSet<container, value> operator|(const utils::set<container, value>& lhs, const utils::set<container, value>& rhs) {
@@ -566,9 +612,9 @@ utils::set<container, value> operator&(const utils::set<container, value>& lhs, 
     return utils::set<container, value>(lhs.getCapacity().min == rhs.getCapacity().min ? lhs & intersection : rhs & intersection);
 }
 
-template<typename enumType, typename containerSize = std::underlying_type_t<enumType>>
-constexpr utils::bitmask<enumType, containerSize> operator|(enumType a, enumType b) noexcept {
-    utils::bitmask<enumType, containerSize> bm(a);
+template<typename enumType, typename valueType = std::underlying_type_t<enumType>>
+constexpr utils::bitmask<enumType, valueType> operator|(enumType a, enumType b) noexcept {
+    utils::bitmask<enumType, valueType> bm(a);
     bm |= b;
     return bm;
 }

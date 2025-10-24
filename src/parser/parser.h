@@ -19,19 +19,30 @@ namespace parser {
     namespace unit {
         using lexerOutput = std::vector<lexer::token::base*>;
 
+        enum class pass {
+            FIRST,
+            SECOND,
+            THIRD,
+            // ...
+
+            LAST
+        };
+
         class base {
         public:
-            std::size_t passIndex = 0;                // Describes which pass through of the input token loop-through we currently are from.
+            pass passIndex = pass::FIRST;             // Describes which pass through of the input token loop-through we currently are from.
             token::scope::base* parent = nullptr;     // Gives data of the current scope.
-            utils::set<lexerOutput> window;           // Gives a set of indicies for the current scope of lexed tokens
+            utils::superSet<lexerOutput> tokens;      // Gives a set of indicies for the current scope of lexed tokens
             
-            base(lexerOutput& /*Lexed Tokens*/);
-            base(base& /*Reference Of The Parent Unit*/, utils::range /*Set Limits*/);
+            base(lexerOutput& Tokens) : tokens(Tokens) {}
+            base(pass i, token::scope::base* p, utils::superSet<lexerOutput> t) : passIndex(i), parent(p), tokens(t) {}
 
             // Delete copy
             base(const base&) = delete;
 
             void factory();
+
+            base operator&(utils::range limit);
         };
 
     }
@@ -64,12 +75,20 @@ namespace parser {
             
             // Each token class introduces their own factory, which takes lexer::tokens as input and colors the area it will require which will be deleted upon exit.
             // Also Parent has to be a scope
-            static void factory(unit::base& /*Current Translation Unit State*/);
+            static void factory(unit::base& /*Current Translation Unit State*/) {}
         };
 
         // If we use this we can use it with no need to worry about slicing, although just using token::base as info packet is also fine tbh 🙄
         struct info final : public parser::token::base {
             using parser::token::base::base;
+        };
+
+        class definition : public token::base {
+        public:
+            
+
+            
+            static void factory(unit::base& /*Current Translation Unit State*/);
         };
 
         namespace Operator {
