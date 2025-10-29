@@ -25,6 +25,7 @@ namespace tester {
 			add_test("SuperSet Difference", "superSet difference works correctly", test_superset_difference);
 			add_test("SuperSet Subset/Superset", "superSet subset/superset checks work correctly", test_superset_subset_superset);
 			add_test("Punching holes", "set and superSet can punch holes correctly", test_set_holes);
+			add_test("Cumulative Punching holes", "superSet can punch cumulative holes correctly", test_cumulative_set_holes);
 		}
 
 	private:
@@ -295,22 +296,50 @@ namespace tester {
 			using containerType = std::vector<int>;
 			containerType c({0, 1, 2, 3, 4, 5, 6, 7, 8, 9});
 
-			::utils::set<containerType> s1(c, {0, 9});   // [0, 9)
+			::utils::set<containerType> s1(c, {0, 10});   // [0, 10) - all 10 elements
 
 			::utils::superSet<containerType> ss({s1});
 
-			// now lets create an traveler at (5, 5)
-			::utils::range traveler(5, 5);
+			// now let's remove elements at logical positions 4 and 6
+			ss -= {4, 5};  // removes logical index 4 (physical 4, value 4)
+			ss -= {6, 7};  // removes logical index 6 (physical 7, value 7) - note: after first removal, logical 6 maps to physical 7!
+
+			// After removals: physical {0,1,2,3,5,6,8,9}, values {0,1,2,3,5,6,8,9}
+			// Logical indexing: 0->0, 1->1, 2->2, 3->3, 4->5, 5->6, 6->8, 7->9
+			ASSERT_EQ(3, ss[3]);	// logical 3 -> physical 3 -> value 3
+			ASSERT_EQ(5, ss[4]);	// logical 4 -> physical 5 -> value 5
+			ASSERT_EQ(6, ss[5]);	// logical 5 -> physical 6 -> value 6
+			ASSERT_EQ(8, ss[6]);	// logical 6 -> physical 8 -> value 8
+		}
+
+		static void test_cumulative_set_holes() {
+			using containerType = std::vector<int>;
+			containerType c({0, 1, 2, 3, 4, 5, 6, 7, 8, 9});
+
+			::utils::set<containerType> s1(c, {0, 10});   // [0, 10) - all 10 elements
+
+			::utils::superSet<containerType> ss({s1});
 
 			// now let's remove left of traveler and right of traveler
 			ss -= {4, 5};
 			ss -= {6, 7};
 
-			// Now if we try to access left or right of the traveler, we should skip the removed indicies
-			ASSERT_EQ(3, ss[3]);	// Should work
-			ASSERT_EQ(5, ss[4]);	// Should work
-			ASSERT_EQ(7, ss[5]);	// should work
-			ASSERT_EQ(8, ss[6]);	// should work
+			// expected output: {0, 1, 2, 3, 5, 7, 8, 9}
+
+			// now lets remove same indicies again, but now they should remove the virtual indicies not the already removed physical indicies:
+			ss -= {4, 5}; // should remove 5
+			// expected output: {0, 1, 2, 3, 7, 8, 9}
+			
+			ss -= {4, 5}; // should remove 7
+			// expected output: {0, 1, 2, 3, 8, 9}
+
+			ss -= {3, 5};
+			// expected output: {0, 1, 2, 9}
+
+			ASSERT_EQ(0, ss[0]);
+			ASSERT_EQ(1, ss[1]);
+			ASSERT_EQ(2, ss[2]);
+			ASSERT_EQ(9, ss[3]);
 		}
 
 	};

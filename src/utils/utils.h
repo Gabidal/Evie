@@ -395,7 +395,14 @@ namespace utils {
         }
 
         superSet operator|(range r) const {
-            return (*this) | subset(nullptr, capacity, r);
+            // Convert logical range to physical range
+            if (r.min >= r.max) return *this; // empty range
+            
+            std::size_t physicalMin = getPhysicalIndex(r.min);
+            std::size_t physicalMax = getPhysicalIndex(r.max - 1) + 1;
+            
+            range physicalRange(physicalMin, physicalMax);
+            return (*this) | subset(nullptr, capacity, physicalRange);
         }
 
         superSet& operator|=(subset& s) {
@@ -420,7 +427,14 @@ namespace utils {
         }
 
         superSet operator&(range r) const {
-            return (*this) & subset(nullptr, capacity, r);
+            // Convert logical range to physical range
+            if (r.min >= r.max) return superSet(); // empty range
+            
+            std::size_t physicalMin = getPhysicalIndex(r.min);
+            std::size_t physicalMax = getPhysicalIndex(r.max - 1) + 1;
+            
+            range physicalRange(physicalMin, physicalMax);
+            return (*this) & subset(nullptr, capacity, physicalRange);
         }
 
         superSet& operator&=(subset& s) {
@@ -479,10 +493,16 @@ namespace utils {
         }
 
         superSet operator^(range r) const {
-            // Require r in this, otherwise error
-            if (!capacity.contains(r)) throw std::out_of_range("superSet: symmetric difference out of range");
+            // Convert logical range to physical range
+            if (r.min >= r.max) return *this; // empty range
+            
+            std::size_t physicalMin = getPhysicalIndex(r.min);
+            std::size_t physicalMax = getPhysicalIndex(r.max - 1) + 1;
+            
+            range physicalRange(physicalMin, physicalMax);
+            if (!capacity.contains(physicalRange)) throw std::out_of_range("superSet: symmetric difference out of range");
 
-            return (*this) ^ subset(nullptr, capacity, r);
+            return (*this) ^ subset(nullptr, capacity, physicalRange);
         }
 
         superSet& operator^=(subset& s) {
@@ -491,7 +511,14 @@ namespace utils {
         }
 
         superSet& operator^=(range r) {
-            *this = (*this) ^ r;
+            // Convert logical range to physical range
+            if (r.min >= r.max) return *this; // empty range
+            
+            std::size_t physicalMin = getPhysicalIndex(r.min);
+            std::size_t physicalMax = getPhysicalIndex(r.max - 1) + 1;
+            
+            range physicalRange(physicalMin, physicalMax);
+            *this = (*this) ^ physicalRange;
             return *this;
         }
 
@@ -534,7 +561,14 @@ namespace utils {
         }
 
         superSet& operator-=(range r) {
-            *this = (*this) - subset(nullptr, capacity, r);
+            // Convert logical range to physical range
+            if (r.min >= r.max) return *this; // empty range
+            
+            std::size_t physicalMin = getPhysicalIndex(r.min);
+            std::size_t physicalMax = getPhysicalIndex(r.max - 1) + 1; // r.max is exclusive, so get last element + 1
+            
+            range physicalRange(physicalMin, physicalMax);
+            *this = (*this) - subset(nullptr, capacity, physicalRange);
             return *this;
         }
 
