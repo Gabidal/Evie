@@ -362,11 +362,17 @@ namespace utils {
 
         superSet(container& realList, range area = {0, 0}) : superSet(std::vector<subset>{ subset(realList, area) }, area) {}
 
-        const value& operator[](std::size_t index) const {
-            auto it = std::upper_bound(cache.begin(), cache.end(), index);
-            if (it == cache.begin()) throw std::out_of_range("superSet: index too small");
-            std::size_t idx = std::distance(cache.begin(), it) - 1;
-            return subsets[idx][index];
+        const value& operator[](std::size_t logicalIndex) const {
+            // Use cache to find which subset contains this logical index
+            // cache[i] stores the cumulative count of elements in subsets[0..i-1]
+            auto it = std::upper_bound(cache.begin(), cache.end(), logicalIndex);
+            if (it == cache.begin()) throw std::out_of_range("superSet: logical index out of range");
+            
+            std::size_t subsetIdx = std::distance(cache.begin(), it) - 1;
+            std::size_t logicalOffsetInSubset = logicalIndex - cache[subsetIdx];
+            std::size_t physicalIndex = subsets[subsetIdx].getSize().min + logicalOffsetInSubset;
+            
+            return subsets[subsetIdx][physicalIndex];
         }
 
         void add(subset& s) {
@@ -376,13 +382,13 @@ namespace utils {
 
         range getSize() const { return size; }
         range getCapacity() const { return capacity; }
-        uint32_t getMaxSize() const { return static_cast<uint32_t>(capacity.max - capacity.min); }
+        int32_t getMaxSize() const { return capacity.max - capacity.min; }
 
         range begin() const noexcept { return {size.min, size.min}; }
         range end() const noexcept { return {size.max, size.max}; }
 
         // Creates an union and returns it if fit
-        superSet operator|(const subset& s) const {
+        superSet operator|(subset& s) const {
             superSet ss = *this;
             ss.add(s);
             return ss;
@@ -527,6 +533,11 @@ namespace utils {
             return *this;
         }
 
+        superSet& operator-=(range r) {
+            *this = (*this) - subset(nullptr, capacity, r);
+            return *this;
+        }
+
         // Subset check (<=) - all subsets are contained within given subset
         bool operator<=(const subset& s) const noexcept {
             for (const auto& current : subsets) {
@@ -557,6 +568,37 @@ namespace utils {
     private:
         std::vector<std::size_t> cache; // cache[i] = total size of subsets[0..i-1]
 
+        // Get physical index from logical index
+        std::size_t getPhysicalIndex(std::size_t logicalIndex) const {
+            std::size_t count = 0;
+            
+            for (const auto& s : subsets) {
+                std::size_t subsetSize = s.getSize().length();
+                
+                if (logicalIndex < count + subsetSize) {
+                    return s.getSize().min + (logicalIndex - count);
+                }
+                
+                count += subsetSize;
+            }
+            
+            throw std::out_of_range("superSet: logical index out of range");
+        }
+
+        // Get logical index from physical index (reverse mapping)
+        std::size_t getLogicalIndex(std::size_t physicalIndex) const {
+            std::size_t logicalOffset = 0;
+            
+            for (const auto& s : subsets) {
+                if (s.getSize().contains(physicalIndex)) {
+                    return logicalOffset + (physicalIndex - s.getSize().min);
+                }
+                logicalOffset += s.getSize().length();
+            }
+            
+            throw std::out_of_range("superSet: physical index not accessible");
+        }
+
         // Each time the super set is changed this needs to be run.
         void rebuildCache() {
 
@@ -572,9 +614,11 @@ namespace utils {
             std::sort(subsets.begin(), subsets.end(), [](const subset& a, const subset& b) { return a.getSize().min < b.getSize().min; });
 
             cache.clear();
-
+            std::size_t cumulativeSize = 0;
+            
             for (auto& s : subsets) {
-                cache.push_back(s.getSize().min); // absolute start of each subset
+                cache.push_back(cumulativeSize); // cumulative count of elements before this subset
+                cumulativeSize += s.getSize().length();
             }
 
             if (!capacity.contains(size))

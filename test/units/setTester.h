@@ -24,6 +24,7 @@ namespace tester {
 			add_test("Set Subset/Superset", "set subset/superset checks work correctly", test_set_subset_superset);
 			add_test("SuperSet Difference", "superSet difference works correctly", test_superset_difference);
 			add_test("SuperSet Subset/Superset", "superSet subset/superset checks work correctly", test_superset_subset_superset);
+			add_test("Punching holes", "set and superSet can punch holes correctly", test_set_holes);
 		}
 
 	private:
@@ -288,6 +289,28 @@ namespace tester {
 			ASSERT_TRUE(ss >= s4);    // ss is superset of s4
 			ASSERT_TRUE(ss > s4);     // ss is proper superset of s4
 			ASSERT_FALSE(ss >= s3);   // ss is not superset of s3
+		}
+
+		static void test_set_holes() {
+			using containerType = std::vector<int>;
+			containerType c({0, 1, 2, 3, 4, 5, 6, 7, 8, 9});
+
+			::utils::set<containerType> s1(c, {0, 9});   // [0, 9)
+
+			::utils::superSet<containerType> ss({s1});
+
+			// now lets create an traveler at (5, 5)
+			::utils::range traveler(5, 5);
+
+			// now let's remove left of traveler and right of traveler
+			ss -= {4, 5};
+			ss -= {6, 7};
+
+			// Now if we try to access left or right of the traveler, we should skip the removed indicies
+			ASSERT_EQ(3, ss[3]);	// Should work
+			ASSERT_EQ(5, ss[4]);	// Should work
+			ASSERT_EQ(7, ss[5]);	// should work
+			ASSERT_EQ(8, ss[6]);	// should work
 		}
 
 	};

@@ -34,6 +34,16 @@ namespace parser {
             token::scope::base* parent = nullptr;     // Gives data of the current scope.
             utils::superSet<lexerOutput> tokens;      // Gives a set of indicies for the current scope of lexed tokens
             
+            /**
+             * @brief This is how it works:
+             * All patterns output here, then if this is a subUnit the parentUnit will subjugate all subUnit output into specified pattern as an AST member.
+             * @example:
+             *  a = 1 + 2 <- here the '+' will be triggered first, collecting 1 and 2.
+             *  Now the next pattern knowing that the right side is exhausted, but not outside capacity, means it is processed token found in the unit::base::output.
+             *  a = <exhausted>
+             */
+            std::vector<token::base*> output;
+
             base(lexerOutput& Tokens) : tokens(Tokens) {}
             base(pass i, token::scope::base* p, utils::superSet<lexerOutput> t) : passIndex(i), parent(p), tokens(t) {}
 
@@ -46,6 +56,9 @@ namespace parser {
             lexerTokenType* at(uint32_t i) {
                 return dynamic_cast<lexerTokenType*>(tokens[i]);
             }
+
+            // Returns the current beginning of the current token set.
+            int32_t getCurrentIndex() { return static_cast<int32_t>(tokens.begin().min); }
 
             base operator&(utils::range limit);
         };
@@ -71,10 +84,11 @@ namespace parser {
         class base {
         public:
             type flags;
+            lexer::token::position position;
             scope::base* parent;
             std::string_view symbol;
 
-            base(type Flags, scope::base* Parent = nullptr, std::string_view Symbol = "") : flags(Flags), parent(Parent), symbol(Symbol) {}
+            base(type Flags, lexer::token::position Position = {0, 0, 0}, scope::base* Parent = nullptr, std::string_view Symbol = "") : flags(Flags), position(Position), parent(Parent), symbol(Symbol) {}
 
             virtual ~base() = default;  // For our fallen comrades 🥀🥀🥀 smh tsm
 
@@ -138,8 +152,7 @@ namespace parser {
             enum class type {
                 UNKNOWN,            // ???
                 FETCHER,            // .        <- This works same for scopes and member fetchers.
-                PREFIX,             // Abstract type for the prefix operator subset.
-                POSTFIX,            // Abstract type for the postfix operator subset.
+                FIX,                // Abstract type for the prefix operator subset.
                 MULTIPLICATION,     // '*'
                 DIVISION,           // '/'
                 MODULO,             // '%'
@@ -154,31 +167,39 @@ namespace parser {
                 ASSIGN,             // Abstract type for all assignment operators.
             };
 
+            type toType(std::string_view symbol);
+
             class base : public token::base {
             public:
-                // By default an operator combines two nodes around it.
+                // By default an operator combines two nodes next to it.
                 token::base* left;
                 token::base* right;
 
                 base(info Info, token::base* Left, token::base* Right) : token::base(Info), left(Left), right(Right) {}
 
                 static void factory(unit::base& /*Current Translation Unit State*/);
+            
+                static void combinator(unit::base& /*Current Translation Unit State*/);
             };
 
-            namespace prefix {
+            namespace fix {
 
-                // Un-ordered
                 enum class type {
-                    UNKNOWN,            // ???
-                    PLUSPLUS,           // '++'
-                    MINUSMINUS,         // '--'
+                    UNKNOWN,
+                    POST,
+                    PRE,
                 };
 
-            }
+                bool is(std::string_view symbol);
 
-            namespace postfix {
-
-                using type = prefix::type;      // I'm absolute big brain on this one 🗣️💡
+                class base : public token::base {
+                    // Symbol is stored in this::base::symbol
+                public:
+                    fix::type fixity;
+                    token::base* operand;
+                    
+                    base(info Info, token::base* Operand, fix::type postOrPre) : token::base(Info), fixity(postOrPre), operand(Operand) {}
+                };
 
             }
 
@@ -196,6 +217,8 @@ namespace parser {
                     LOGICAL_AND,        // '&&'
                     LOGICAL_OR,         // '||'
                 };
+
+                bool is(std::string_view symbol);
 
             }
 
@@ -216,6 +239,8 @@ namespace parser {
                     BITSHIFT_LEFT_ASSIGN,   // '<<='
                     BITSHIFT_RIGHT_ASSIGN,  // '>>='
                 };
+
+                bool is(std::string_view symbol);
             }
         }
     }
