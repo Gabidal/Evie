@@ -73,6 +73,7 @@ namespace parser {
             OBJECT,         // Any occurrence of known defined word.
             OPERATOR,       // All operator representor type.
             SCOPE,          // Any occurrence of a scope block (function, class, namespace, parenthesis, etc).
+            CALLER,         // Function call operator.
         };
         
         namespace scope {
@@ -95,6 +96,10 @@ namespace parser {
             // Each token class introduces their own factory, which takes lexer::tokens as input and colors the area it will require which will be deleted upon exit.
             // Also Parent has to be a scope
             static void factory(unit::base* /*Current Translation Unit State*/, size_t /*Current Index*/) {}
+
+            virtual std::string toString() { 
+                return std::string(symbol) + ": (" + std::to_string(position.x) + ", " + std::to_string(position.y) + ")";
+            }
         };
 
         // If we use this we can use it with no need to worry about slicing, although just using token::base as info packet is also fine tbh 🙄
@@ -185,10 +190,14 @@ namespace parser {
 
                 base(info Info, type Type, token::base* Left, token::base* Right) : token::base(Info), operationType(Type), left(Left), right(Right) {}
 
-                static void factory(unit::base* /*Current Translation Unit State*/, size_t /*Current Index*/);
+                static void factory(unit::base* /*Current Translation Unit State*/);
             
-                static void combinator(unit::base* /*Current Translation Unit State*/, size_t /*Current Index*/);
+                static void combinator(unit::base* /*Current Translation Unit State*/, size_t /*Current Index*/, type /*Focused Type*/);
             };
+
+            namespace fetcher {
+                static void combinator(unit::base* /*Current Translation Unit State*/, size_t /*Current Index*/);
+            }
 
             namespace fix {
 

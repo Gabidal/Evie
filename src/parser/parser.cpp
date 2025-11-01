@@ -16,10 +16,13 @@ namespace parser {
                 // FACTORIES:
                 // -_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
                 token::definition::factory(this, index);
-                token::Operator::base::factory(this, index);
                 // -_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
-
+                
             }
+            
+            // SPECIAL FACTORIES:
+            // -_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
+            token::Operator::base::factory(this);
         }
     }
 
@@ -150,36 +153,71 @@ namespace parser {
         return false;
     }
 
-    void token::Operator::base::factory(unit::base* currentUnit, size_t startIndex) {
-        if (currentUnit->passIndex != unit::pass::SECOND) return;    // maybe increase this, since first pass is for definitions...
-        
-        // Checks if the current token is a operator token type, if so it needs to be accommodated.
-        if (currentUnit->at<lexer::token::base>(startIndex)->get_type() != lexer::token::types::OPERATOR) return;
-
-        // Check if we have enough tokens to form an operation.
-        if (currentUnit->tokens.size() <= 1) throw std::runtime_error("Incomplete operator token at index " + std::to_string(startIndex));
-
-        // Now we can start calling the handlers for this specific operation symbol type:
-        lexer::token::op* operatorToken = currentUnit->at<lexer::token::op>(startIndex);
-
-        switch (token::Operator::toType(operatorToken->text)) {
-            case token::Operator::type::FIX:
-                token::Operator::fix::base::combinator(currentUnit, startIndex);
-                break;
-            default:    // Basically almost all of operator types are {L, op, R} combinations.
-                token::Operator::base::combinator(currentUnit, startIndex);
-        }
-    }
-
-    void token::Operator::base::combinator(unit::base* currentUnit, size_t startIndex) {
-        // Operator::factory already checks for basic checks, so no need to do them here again.
-        int32_t i = startIndex;
-        lexer::token::op* currentOperator = currentUnit->at<lexer::token::op>(i);
+    void token::Operator::base::factory(unit::base* currentUnit) {
+        if (currentUnit->passIndex != unit::pass::SECOND) return;
 
         // <bool a> = 1 == 1 && 1 & 1
         // a = <1 == 1> && <1 & 1>
         // a = <l && r>
         // <a = r>
+
+        // '.'
+        for (size_t i = 0; i < currentUnit->tokens.size(); i++) {
+            token::Operator::fetcher::combinator(currentUnit, i);
+        }
+
+        // '++' '--'
+        for (size_t i = 0; i < currentUnit->tokens.size(); i++) {
+            token::Operator::fix::base::combinator(currentUnit, i);
+        }
+
+        // '*' '/' '%'
+        for (size_t i = 0; i < currentUnit->tokens.size(); i++) {
+            token::Operator::base::combinator(currentUnit, i, token::Operator::type::MULTIPLICATION);
+            token::Operator::base::combinator(currentUnit, i, token::Operator::type::DIVISION);
+            token::Operator::base::combinator(currentUnit, i, token::Operator::type::MODULO);
+        }
+
+        // '+' '-'
+        for (size_t i = 0; i < currentUnit->tokens.size(); i++) {
+            token::Operator::base::combinator(currentUnit, i, token::Operator::type::ADDITION);
+            token::Operator::base::combinator(currentUnit, i, token::Operator::type::SUBTRACTION);
+        }
+
+        // '<<' '>>'
+        for (size_t i = 0; i < currentUnit->tokens.size(); i++) {
+            token::Operator::base::combinator(currentUnit, i, token::Operator::type::BITSHIFT_LEFT);
+            token::Operator::base::combinator(currentUnit, i, token::Operator::type::BITSHIFT_RIGHT);
+        }
+
+        // Conditionals
+        for (size_t i = 0; i < currentUnit->tokens.size(); i++) {
+            token::Operator::base::combinator(currentUnit, i, token::Operator::type::CONDITION);
+        }
+
+        // '&' '¤' '|'
+        for (size_t i = 0; i < currentUnit->tokens.size(); i++) {
+            token::Operator::base::combinator(currentUnit, i, token::Operator::type::AND);
+            token::Operator::base::combinator(currentUnit, i, token::Operator::type::XOR);
+            token::Operator::base::combinator(currentUnit, i, token::Operator::type::OR);
+        }
+
+        // Assignments
+        for (size_t i = 0; i < currentUnit->tokens.size(); i++) {
+            token::Operator::base::combinator(currentUnit, i, token::Operator::type::ASSIGN);
+        }
+    }
+
+    void token::Operator::base::combinator(unit::base* currentUnit, size_t i, token::Operator::type t) {
+        // Checks if the current token is a operator token type, if so it needs to be accommodated.
+        if (currentUnit->at<lexer::token::base>(i)->get_type() != lexer::token::types::OPERATOR) return;
+
+        if (toType(currentUnit->at<lexer::token::op>(i)->text) != t) return;
+
+        // Check if we have enough tokens to form an operation.
+        if (currentUnit->tokens.size() <= 1) throw std::runtime_error("Incomplete operator token at index " + std::to_string(i));
+
+        lexer::token::op* currentOperator = currentUnit->at<lexer::token::op>(i);
 
         token::base* left = currentUnit->at<lexer::token::base>(i - 1)->parsed;
         token::base* right = currentUnit->at<lexer::token::base>(i + 1)->parsed;
@@ -208,9 +246,96 @@ namespace parser {
         currentUnit->tokens.erase(currentUnit->tokens.begin() + i - 1);
     }
 
-    void token::Operator::fix::base::combinator(unit::base* currentUnit, size_t startIndex) {
-        // Operator::factory already checks for basic checks, so no need to do them here again.
-        lexer::token::op* currentOperator = currentUnit->at<lexer::token::op>(startIndex);
+    void token::Operator::fetcher::combinator(unit::base* currentUnit, size_t i) {
+        // Checks if the current token is a operator token type, if so it needs to be accommodated.
+        if (currentUnit->at<lexer::token::base>(i)->get_type() != lexer::token::types::OPERATOR) return;
+        if (toType(currentUnit->at<lexer::token::op>(i)->text) != token::Operator::type::FETCHER) return;
+
+        lexer::token::op* currentOperator = currentUnit->at<lexer::token::op>(i);
+
+        token::base* left = currentUnit->at<lexer::token::base>(i - 1)->parsed;
+        token::base* right = currentUnit->at<lexer::token::base>(i + 1)->parsed;
+
+        // Since each fetcher will always at conception cache where the right side is from, we dont need full recursion here
+        if (!left) throw std::runtime_error("Use of undefined scope: " +  currentUnit->at<lexer::token::base>(i - 1)->toString());
+
+        token::definition* closestFetcherDefinition;
+
+        if (left->flags == token::type::OPERATOR) {     // a.b.c -> <a.b>.c
+            // Now we can take from left->right->baked_definition->search(right->symbol)
+            token::Operator::base* leftOperator = dynamic_cast<token::Operator::base*>(left);
+            if (!leftOperator) throw std::runtime_error("Internal parser error: failed to cast left operand to operator type in fetcher combinator.");
+            
+            token::object* fetcherObject = dynamic_cast<token::object*>(leftOperator->right);
+            if (!fetcherObject) throw std::runtime_error("Left operand in fetcher is not an object type: " + leftOperator->right->toString());
+
+            // Now we have an identified object which should contain its definition, where we can then find the right side definition from.
+            token::definition* bakedDefinition = fetcherObject->reference;
+            if (!bakedDefinition) throw std::runtime_error("Object '" + fetcherObject->toString() + "' has no associated definition.");
+
+            closestFetcherDefinition = bakedDefinition;
+        }
+        else if (left->flags == token::type::OBJECT || left->flags == token::type::CALLER){   // a.b | a().b
+            token::object* leftObject = dynamic_cast<token::object*>(left);
+            if (!leftObject) throw std::runtime_error("Internal parser error: failed to cast left operand to object type in fetcher combinator.");
+
+            token::definition* bakedDefinition = leftObject->reference;
+            if (!bakedDefinition) throw std::runtime_error("Object '" + leftObject->toString() + "' has no associated definition.");
+
+            closestFetcherDefinition = bakedDefinition;
+        }
+        else {
+            throw std::runtime_error("Left operand in fetcher is not a valid type: " + left->toString());
+        }
+
+        lexer::token::text* rightSide = currentUnit->at<lexer::token::text>(i + 1);
+        if (!rightSide) throw std::runtime_error("Right operand in fetcher is not a valid text token: " + currentUnit->at<lexer::token::base>(i + 1)->toString());
+
+        // Now that we have the definition of our closest fetcher from the chain, we can swift through its inheritances[i]->(casted to scope)->definitions and see if any of them contain right->symbol
+        for (const auto& inheritedSymbol : closestFetcherDefinition->inherited) {
+            token::base* foundInScope = closestFetcherDefinition->parent->findClosestDefinition(inheritedSymbol);
+            if (!foundInScope) continue;
+
+            token::scope::base* foundScope = dynamic_cast<token::scope::base*>(foundInScope);
+            if (!foundScope) continue;
+
+            token::base* fetchedDefinition = foundScope->findClosestDefinition(rightSide->data);
+            if (fetchedDefinition) {
+                // We have found our target definition!
+                
+                // Now we can construct the fetcher operator:
+                token::Operator::base* newFetcherOperator = new token::Operator::base(
+                    token::info(
+                        token::type::OPERATOR,
+                        currentOperator->get_start(),
+                        currentUnit->parent,
+                        currentOperator->text
+                    ),
+                    token::Operator::type::FETCHER,
+                    left,
+                    fetchedDefinition
+                );
+
+                // write parsed
+                currentUnit->at<lexer::token::op>(i)->parsed = newFetcherOperator;
+
+                // Exhaust consumed tokens (<exhaust + <not exhaust> + <exhaust>)
+                currentUnit->tokens.erase(currentUnit->tokens.begin() + i + 1);
+                currentUnit->tokens.erase(currentUnit->tokens.begin() + i - 1);
+
+                return;
+            }
+        }
+    }
+
+    void token::Operator::fix::base::combinator(unit::base* currentUnit, size_t i) {
+        // Checks if the current token is a operator token type, if so it needs to be accommodated.
+        if (currentUnit->at<lexer::token::base>(i)->get_type() != lexer::token::types::OPERATOR) return;
+
+        // Check if we have enough tokens to form an operation.
+        if (currentUnit->tokens.size() <= 1) throw std::runtime_error("Incomplete operator token at index " + std::to_string(i));
+
+        lexer::token::op* currentOperator = currentUnit->at<lexer::token::op>(i);
 
         // Fix operators need at least 2 tokens: {OP, operand} or {operand, OP}
         if (currentUnit->tokens.size() < 2) throw std::runtime_error("Not enough tokens to form: " + currentOperator->toString());
@@ -221,16 +346,16 @@ namespace parser {
 
         // Determine if this is prefix or postfix by checking neighboring tokens
         // Check for postfix: operand is at i-1
-        if (startIndex > 0) {
-            operand = currentUnit->at<lexer::token::base>(startIndex - 1)->parsed;
+        if (i > 0) {
+            operand = currentUnit->at<lexer::token::base>(i - 1)->parsed;
             if (operand) {
                 fixity = fix::type::POST;
             }
         }
 
         // Check for prefix: operand is at i+1
-        if (!operand && startIndex + 1 < currentUnit->tokens.size()) {
-            operand = currentUnit->at<lexer::token::base>(startIndex + 1)->parsed;
+        if (!operand && i + 1 < currentUnit->tokens.size()) {
+            operand = currentUnit->at<lexer::token::base>(i + 1)->parsed;
             if (operand) {
                 fixity = fix::type::PRE;
             }
@@ -252,14 +377,14 @@ namespace parser {
         );
 
         // write the operand for the next user, NOTE: the IR will have to deal with fixity order of pre/post self modification of the operand
-        currentUnit->at<lexer::token::base>(startIndex)->parsed = newFixOperator;
+        currentUnit->at<lexer::token::base>(i)->parsed = newFixOperator;
 
         // Exhaust consumed tokens (either {operand, OP} for postfix or {OP, operand} for prefix)
         // But keep the operator token itself (at position i) as it now represents the parsed operation
         if (fixity == fix::type::POST) {
-            currentUnit->tokens.erase(currentUnit->tokens.begin() + startIndex - 1);
+            currentUnit->tokens.erase(currentUnit->tokens.begin() + i - 1);
         } else if (fixity == fix::type::PRE) {
-            currentUnit->tokens.erase(currentUnit->tokens.begin() + startIndex + 1);
+            currentUnit->tokens.erase(currentUnit->tokens.begin() + i + 1);
         }
     }
 
