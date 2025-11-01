@@ -1,7 +1,7 @@
 #include "units/utils.h"
 #include "units/bitmaskTester.h"
-#include "units/setTester.h"
 #include "units/lexerTester.h"
+#include "units/parserTester.h"
 
 int main() {
     std::cout << tester::utils::colorText("GGUI Framework Test Suite\n", GGUI::COLOR::BLUE);
@@ -12,7 +12,7 @@ int main() {
         tester::utils::run_all_tests({
             new tester::bitmaskTester(),
             new tester::lexerTester(),
-            new tester::setTester(),
+            new tester::parserTester(),
         });
     } catch (const std::exception& e) {
         std::cout << tester::utils::colorText("Test suite crashed with exception: ", GGUI::COLOR::RED) << e.what() << "\n";

@@ -32,7 +32,7 @@ namespace parser {
         public:
             pass passIndex = pass::FIRST;             // Describes which pass through of the input token loop-through we currently are from.
             token::scope::base* parent = nullptr;     // Gives data of the current scope.
-            utils::superSet<lexerOutput> tokens;      // Gives a set of indicies for the current scope of lexed tokens
+            lexerOutput& tokens;                      // Gives a set of indicies for the current scope of lexed tokens
             
             /**
              * @brief This is how it works:
@@ -45,7 +45,7 @@ namespace parser {
             std::vector<token::base*> output;
 
             base(lexerOutput& Tokens) : tokens(Tokens) {}
-            base(pass i, token::scope::base* p, utils::superSet<lexerOutput> t) : passIndex(i), parent(p), tokens(t) {}
+            base(pass i, token::scope::base* p);
 
             // Delete copy
             base(const base&) = delete;
@@ -54,16 +54,14 @@ namespace parser {
 
             template<typename lexerTokenType>
             lexerTokenType* at(uint32_t i) {
-                return dynamic_cast<lexerTokenType*>(tokens[i]);
+                if (i < tokens.size())
+                    return dynamic_cast<lexerTokenType*>(tokens[i]);
+                
+                return nullptr;
             }
-
-            // Returns the current beginning of the current token set.
-            int32_t getCurrentIndex() { return static_cast<int32_t>(tokens.begin().min); }
-
-            base operator&(utils::range limit);
         };
 
-        ::utils::range findSubsequentTokens(base& /*Current Translation Unit*/, lexer::token::types /*Token type*/);
+        ::utils::range findSubsequentTokens(base* /*Current Translation Unit*/, lexer::token::types /*Token type*/, size_t /*Start Index*/);
     }
 
     namespace token {
@@ -96,7 +94,7 @@ namespace parser {
             
             // Each token class introduces their own factory, which takes lexer::tokens as input and colors the area it will require which will be deleted upon exit.
             // Also Parent has to be a scope
-            static void factory(unit::base& /*Current Translation Unit State*/) {}
+            static void factory(unit::base* /*Current Translation Unit State*/, size_t /*Current Index*/) {}
         };
 
         // If we use this we can use it with no need to worry about slicing, although just using token::base as info packet is also fine tbh 🙄
@@ -111,7 +109,14 @@ namespace parser {
             // Auto-adds itself to the current parent
             definition(info Info, std::vector<std::string_view> toInherit);
             
-            static void factory(unit::base& /*Current Translation Unit State*/);
+            static void factory(unit::base* /*Current Translation Unit State*/, size_t /*Current Index*/);
+        };
+
+        class object : public token::base {
+        public:
+            std::string_view name;
+
+            definition* reference;
         };
 
         namespace scope {
@@ -127,14 +132,16 @@ namespace parser {
 
             class base : public token::base {
             public:
+                std::vector<token::base*> definitions;
                 std::vector<token::base*> children;
-                utils::superSet<unit::lexerOutput> rawTokens;   // used by templates.
 
-                base(info Info, utils::superSet<unit::lexerOutput> RawTokens) : token::base(Info), rawTokens(RawTokens) {}
+                unit::lexerOutput rawTokens;   // used by templates.
+
+                base(info Info, unit::lexerOutput RawTokens) : token::base(Info), rawTokens(RawTokens) {}
 
                 [[nodiscard]] token::base* findClosestDefinition(std::string_view Symbol) const override {
                     // Search in current scope first
-                    for (auto it = children.rbegin(); it != children.rend(); ++it) {
+                    for (auto it = definitions.rbegin(); it != definitions.rend(); ++it) {
                         if ((*it)->flags == token::type::DEFINITION && (*it)->symbol == Symbol) {
                             return *it;
                         }
@@ -171,15 +178,16 @@ namespace parser {
 
             class base : public token::base {
             public:
+                type operationType;
                 // By default an operator combines two nodes next to it.
                 token::base* left;
                 token::base* right;
 
-                base(info Info, token::base* Left, token::base* Right) : token::base(Info), left(Left), right(Right) {}
+                base(info Info, type Type, token::base* Left, token::base* Right) : token::base(Info), operationType(Type), left(Left), right(Right) {}
 
-                static void factory(unit::base& /*Current Translation Unit State*/);
+                static void factory(unit::base* /*Current Translation Unit State*/, size_t /*Current Index*/);
             
-                static void combinator(unit::base& /*Current Translation Unit State*/);
+                static void combinator(unit::base* /*Current Translation Unit State*/, size_t /*Current Index*/);
             };
 
             namespace fix {
@@ -199,6 +207,8 @@ namespace parser {
                     token::base* operand;
                     
                     base(info Info, token::base* Operand, fix::type postOrPre) : token::base(Info), fixity(postOrPre), operand(Operand) {}
+
+                    static void combinator(unit::base* /*Current Translation Unit State*/, size_t /*Current Index*/);
                 };
 
             }

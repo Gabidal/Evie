@@ -81,9 +81,6 @@ namespace tester {
         static void test_separator_classification() {
             lexer::token::separator sep({0, 0, 0}, "\n");
             ASSERT_TRUE(sep.type == lexer::token::separator::types::NEWLINE);
-
-            lexer::token::separator space({0, 0, 0}, " ");
-            ASSERT_TRUE(space.type == lexer::token::separator::types::SPACE);
         }
 
         static void test_wrapper_classification() {
@@ -115,13 +112,12 @@ namespace tester {
             TokenGuard guard;
             guard.tokens = lexer::tokenize("foo bar", 7);
 
-            ASSERT_EQ(static_cast<std::size_t>(3), guard.tokens.size());
+            ASSERT_EQ(static_cast<std::size_t>(2), guard.tokens.size());
             ASSERT_TRUE(guard.tokens[0]->get_type() == lexer::token::types::TEXT);
-            ASSERT_TRUE(guard.tokens[1]->get_type() == lexer::token::types::SEPARATOR);
-            ASSERT_TRUE(guard.tokens[2]->get_type() == lexer::token::types::TEXT);
+            ASSERT_TRUE(guard.tokens[1]->get_type() == lexer::token::types::TEXT);
 
             auto* first = static_cast<lexer::token::text*>(guard.tokens[0]);
-            auto* second = static_cast<lexer::token::text*>(guard.tokens[2]);
+            auto* second = static_cast<lexer::token::text*>(guard.tokens[1]);
             ASSERT_EQ(std::string("foo"), first->data);
             ASSERT_EQ(std::string("bar"), second->data);
         }
@@ -272,19 +268,15 @@ namespace tester {
             TokenGuard guard;
             guard.tokens = lexer::tokenize("0xff 0x1a", 4);
 
-            ASSERT_EQ(static_cast<std::size_t>(3), guard.tokens.size());
+            ASSERT_EQ(static_cast<std::size_t>(2), guard.tokens.size());
 
             ASSERT_TRUE(guard.tokens[0]->get_type() == lexer::token::types::NUMBER);
             auto* first = static_cast<lexer::token::number*>(guard.tokens[0]);
             ASSERT_EQ(std::string("0xff"), first->text);
             ASSERT_TRUE(first->number_type == lexer::token::number::types::HEX);
 
-            ASSERT_TRUE(guard.tokens[1]->get_type() == lexer::token::types::SEPARATOR);
-            auto* separator = static_cast<lexer::token::separator*>(guard.tokens[1]);
-            ASSERT_TRUE(separator->type == lexer::token::separator::types::SPACE);
-
-            ASSERT_TRUE(guard.tokens[2]->get_type() == lexer::token::types::NUMBER);
-            auto* second = static_cast<lexer::token::number*>(guard.tokens[2]);
+            ASSERT_TRUE(guard.tokens[1]->get_type() == lexer::token::types::NUMBER);
+            auto* second = static_cast<lexer::token::number*>(guard.tokens[1]);
             ASSERT_EQ(std::string("0x1a"), second->text);
             ASSERT_TRUE(second->number_type == lexer::token::number::types::HEX);
         }
@@ -294,18 +286,13 @@ namespace tester {
             guard.tokens = lexer::tokenize("== != += -= -- ++ -> << >> <= >= && ||", 0);
 
             const std::vector<std::string> expected_ops = {"==", "!=", "+=", "-=", "--", "++", "->", "<<", ">>", "<=", ">=", "&&", "||"};
-            ASSERT_EQ(static_cast<std::size_t>((signed)expected_ops.size() * 2 - 1), guard.tokens.size());
+            ASSERT_EQ(static_cast<std::size_t>((signed)expected_ops.size()), guard.tokens.size());
 
             for (std::size_t i = 0; i < expected_ops.size(); ++i) {
-                const std::size_t op_index = i * 2;
+                const std::size_t op_index = i;
                 ASSERT_TRUE(guard.tokens[op_index]->get_type() == lexer::token::types::OPERATOR);
                 auto* op_token = static_cast<lexer::token::op*>(guard.tokens[op_index]);
                 ASSERT_EQ(expected_ops[i], op_token->text);
-
-                if (i + 1 == expected_ops.size()) continue;
-                ASSERT_TRUE(guard.tokens[op_index + 1]->get_type() == lexer::token::types::SEPARATOR);
-                auto* separator = static_cast<lexer::token::separator*>(guard.tokens[op_index + 1]);
-                ASSERT_TRUE(separator->type == lexer::token::separator::types::SPACE);
             }
         }
     };

@@ -5,6 +5,12 @@
 #include <vector>
 #include <mutex>
 
+namespace parser {
+    namespace token {
+        class base;
+    }
+}
+
 namespace lexer{
     // contains all token-related utilities.
     namespace token{
@@ -39,6 +45,8 @@ namespace lexer{
         public:
             bool redundant;     // used to flag if an token is flagged to be removed later on instead of messing up calculated indicies.
 
+            parser::token::base* parsed;    // in second stage we can remove this since object will be the largest size.
+
             base(position start_position, types token_type) : start(start_position), type(token_type), redundant(false) {}
             virtual ~base() {}
 
@@ -48,6 +56,10 @@ namespace lexer{
             // Pure virtual clone method for deep copying
             virtual base* clone() const {
                 return new base(*this);
+            }
+
+            virtual std::string toString() {
+                return "POSITION: (" + std::to_string(start.x) + ", " + std::to_string(start.y) + ")";
             }
         };
 
@@ -60,6 +72,10 @@ namespace lexer{
             base* clone() const override {
                 return new text(*this);
             }
+
+            std::string toString() override {
+                return "[TEXT: \"" + data + "\" " + base::toString() + "]";
+            }
         };
 
         class op : public base{
@@ -70,6 +86,10 @@ namespace lexer{
             
             base* clone() const override {
                 return new op(*this);
+            }
+
+            std::string toString() override {
+                return "[OPERATOR: \"" + text + "\" " + base::toString() + "]";
             }
         };
 
@@ -92,6 +112,10 @@ namespace lexer{
             base* clone() const override {
                 return new number(*this);
             }
+
+            std::string toString() override {
+                return "[NUMBER: \"" + text + "\" " + base::toString() + "]";
+            }
         };
 
         class separator : public base{
@@ -99,7 +123,7 @@ namespace lexer{
             enum class types{
                 UNKNOWN,
                 COMMA,
-                SPACE,
+                SPACE,  // Is removed at tokenize::postprocess
                 NEWLINE,
             } type = types::UNKNOWN;
 
@@ -111,6 +135,10 @@ namespace lexer{
             
             base* clone() const override {
                 return new separator(*this);
+            }
+
+            std::string toString() override {
+                return "[SEPARATOR: \"" + std::to_string(static_cast<int>(type)) + "\" " + base::toString() + "]";
             }
         };
 
@@ -157,6 +185,15 @@ namespace lexer{
                 }
                 return cloned;
             }
+
+            std::string toString() override {
+                std::string result = "[WRAPPER: \"" + std::to_string(static_cast<int>(type)) + "\" " + base::toString() + ": {";
+                for (const auto& token : tokens) {
+                    result += token->toString() + ", ";
+                }
+                result += "}]";
+                return result;
+            }
         };
 
         class control : public base{
@@ -190,7 +227,10 @@ namespace lexer{
             base* clone() const override {
                 return new control(*this);
             }
-                    
+            
+            std::string toString() override {
+                return "[CONTROL: \"" + std::to_string(static_cast<int>(type)) + "\" " + base::toString() + "]";
+            }
         };
 
         namespace presets{

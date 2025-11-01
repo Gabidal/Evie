@@ -384,6 +384,21 @@ namespace lexer{
         }
     }
 
+    void remove_space_tokens(std::vector<token::base*>& tokens) {
+        for (size_t i = 0; i < tokens.size();){
+            if (tokens[i]->get_type() == token::types::SEPARATOR){
+                auto* sep_token = static_cast<token::separator*>(tokens[i]);
+                if (sep_token->type == token::separator::types::SPACE){
+                    delete tokens[i];
+                    tokens.erase(tokens.begin() + i);
+                    continue;
+                }
+            }
+
+            ++i;
+        }
+    }
+
     std::vector<token::base*> tokenize(std::string text, unsigned file_id){
         std::vector<token::base*> tokens;
 
@@ -409,6 +424,9 @@ namespace lexer{
         wrap_tokens(tokens, wrapper_indicies);
 
         remove_redundant_tokens(tokens);
+
+        // Post processing tokens:
+        remove_space_tokens(tokens);
 
         return tokens;
     }
