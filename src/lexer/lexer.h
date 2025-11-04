@@ -45,7 +45,7 @@ namespace lexer{
         public:
             bool redundant;     // used to flag if an token is flagged to be removed later on instead of messing up calculated indicies.
 
-            parser::token::base* parsed;    // in second stage we can remove this since object will be the largest size.
+            parser::token::base* parsed = nullptr;    // in second stage we can remove this since object will be the largest size.
 
             base(position start_position, types token_type) : start(start_position), type(token_type), redundant(false) {}
             virtual ~base() {}

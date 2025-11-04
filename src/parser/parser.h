@@ -74,6 +74,7 @@ namespace parser {
             OPERATOR,       // All operator representor type.
             SCOPE,          // Any occurrence of a scope block (function, class, namespace, parenthesis, etc).
             CALLER,         // Function call operator.
+            NUMBER,         // Any number in Real space
         };
         
         namespace scope {
@@ -114,14 +115,31 @@ namespace parser {
             // Auto-adds itself to the current parent
             definition(info Info, std::vector<std::string_view> toInherit);
             
-            static void factory(unit::base* /*Current Translation Unit State*/, size_t /*Current Index*/);
+            static void factory(unit::base* /*Current Translation Unit State*/, size_t& /*Current Index*/);
         };
-
+        
         class object : public token::base {
         public:
             std::string_view name;
-
+            
             definition* reference;
+
+            object(info Info, definition* ref) : token::base(Info), name(ref->symbol), reference(ref) {}
+            
+            static void factory(unit::base* /*Current Translation Unit State*/, size_t& /*Current Index*/);
+        };
+
+        class number : public token::base, public lexer::token::number {
+        public:
+            using lexer::token::number::number;
+
+            number(info Info, const std::string& TextValue) : parser::token::base(Info), lexer::token::number(Info.position, TextValue) {}
+
+            std::string toString() override {
+                return "[PARSER NUMBER: \"" + text + "\" " + parser::token::base::toString() + "]";
+            }
+
+            static void factory(unit::base* /*Current Translation Unit State*/, size_t& /*Current Index*/);
         };
 
         namespace scope {
@@ -172,10 +190,12 @@ namespace parser {
                 SUBTRACTION,        // '-'
                 BITSHIFT_LEFT,      // '<<'
                 BITSHIFT_RIGHT,     // '>>'
-                CONDITION,          // Abstract  type for the condition type subset.
+                COMPARISON,         // Abstract type for conditionals except for || and &&
                 AND,                // '&'
                 XOR,                // '¤'      <- washing machine strikes again >:3
                 OR,                 // '|',
+                LOGICAL_AND,        // '&&'
+                LOGICAL_OR,         // '||'
                 ASSIGN,             // Abstract type for all assignment operators.
             };
 
@@ -192,11 +212,11 @@ namespace parser {
 
                 static void factory(unit::base* /*Current Translation Unit State*/);
             
-                static void combinator(unit::base* /*Current Translation Unit State*/, size_t /*Current Index*/, type /*Focused Type*/);
+                static void combinator(unit::base* /*Current Translation Unit State*/, size_t& /*Current Index*/, type /*Focused Type*/);
             };
 
             namespace fetcher {
-                static void combinator(unit::base* /*Current Translation Unit State*/, size_t /*Current Index*/);
+                extern void combinator(unit::base* /*Current Translation Unit State*/, size_t& /*Current Index*/);
             }
 
             namespace fix {
@@ -217,12 +237,12 @@ namespace parser {
                     
                     base(info Info, token::base* Operand, fix::type postOrPre) : token::base(Info), fixity(postOrPre), operand(Operand) {}
 
-                    static void combinator(unit::base* /*Current Translation Unit State*/, size_t /*Current Index*/);
+                    static void combinator(unit::base* /*Current Translation Unit State*/, size_t& /*Current Index*/);
                 };
 
             }
 
-            namespace condition {
+            namespace comparison {
 
                 // Un-ordered
                 enum class type {
@@ -233,8 +253,6 @@ namespace parser {
                     GREATER_EQUAL,      // '>='
                     EQUAL,              // '=='
                     NOT_EQUAL,          // '!='
-                    LOGICAL_AND,        // '&&'
-                    LOGICAL_OR,         // '||'
                 };
 
                 bool is(std::string_view symbol);

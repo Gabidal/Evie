@@ -16,6 +16,8 @@ namespace parser {
                 // FACTORIES:
                 // -_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
                 token::definition::factory(this, index);
+                token::number::factory(this, index);
+                token::object::factory(this, index);
                 // -_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
                 
             }
@@ -49,7 +51,7 @@ namespace parser {
         }
     }
 
-    void token::definition::factory(unit::base* currentUnit, size_t startIndex) {
+    void token::definition::factory(unit::base* currentUnit, size_t& startIndex) {
         if (currentUnit->passIndex != unit::pass::FIRST) return;    // Definitions are only created in the first pass.
         if (currentUnit->tokens.size() < 2) return;                 // Need at least two tokens to form a definition. one for type and one for name
 
@@ -89,10 +91,61 @@ namespace parser {
             inherited
         );
 
+        // Instead of setting parsed on the name token, we will let the object factory do that for us.
+        // NOTE: For overloads to work we need to inject the definition into the parsed, this gives the object factory a "TRUE" reference to the correct definition and not just the first occurring overload.
         name->parsed = newDefinition;
 
         // Now we exhaust the tokens needed to build this definition, but not he last token, since it will now represent an defined text token for later patterns to recognize.
         currentUnit->tokens.erase(currentUnit->tokens.begin() + textTokens.min, currentUnit->tokens.begin() + textTokens.max - 1);
+        // Update index
+        startIndex = textTokens.min;
+    }
+
+    void token::object::factory(unit::base* currentUnit, size_t& startIndex) {
+        if (currentUnit->passIndex != unit::pass::SECOND) return;    // Definitions are only created in the first pass, so objects on second pass, this way we can use references before their declaration, good for headers :).
+    
+        lexer::token::text* currentText = currentUnit->at<lexer::token::text>(startIndex);
+
+        if (!currentText) return; // Not a text token, cannot be an object.
+
+        token::base* reference = currentText->parsed;
+
+        // Check if this text token is residue of an output of definition factory:
+        if (!reference || reference->flags != token::type::DEFINITION) {
+            // If not, then we need to find the defined manually
+            reference = currentUnit->parent->findClosestDefinition(currentText->data);
+        }
+
+        token::object* newObject = new token::object(
+            token::info(
+                token::type::OBJECT,
+                currentText->get_start(),
+                currentUnit->parent,
+                currentText->data
+            ),
+            static_cast<token::definition*>(reference)
+        );
+
+        // now we override the definition factory made parsed reference with the actual object parsed value.
+        currentText->parsed = newObject;
+    }
+
+    void token::number::factory(unit::base* currentUnit, size_t& startIndex) {
+        if (currentUnit->passIndex != unit::pass::FIRST) return;    // numbers can be handled as soon as possible since they do not require complex AST to be determined
+
+        if (auto currentNumber = currentUnit->at<lexer::token::number>(startIndex)) {
+            token::number* newNumber = new token::number(
+                token::info(
+                    token::type::NUMBER,
+                    currentNumber->get_start(),
+                    currentUnit->parent,
+                    currentNumber->text
+                ),
+                currentNumber->text
+            );
+
+            currentNumber->parsed = newNumber;
+        }
     }
 
     token::Operator::type token::Operator::toType(std::string_view symbol) {
@@ -114,14 +167,18 @@ namespace parser {
             return token::Operator::type::BITSHIFT_LEFT;
         } else if (symbol == ">>") {
             return token::Operator::type::BITSHIFT_RIGHT;
-        } else if (condition::is(symbol)) {
-            return token::Operator::type::CONDITION;
+        } else if (comparison::is(symbol)) {
+            return token::Operator::type::COMPARISON;
         } else if (symbol == "&") {
             return token::Operator::type::AND;
         } else if (symbol == "¤") {
             return token::Operator::type::XOR;
         } else if (symbol == "|") {
             return token::Operator::type::OR;
+        } else if (symbol == "&&") {
+            return token::Operator::type::LOGICAL_AND;
+        } else if (symbol == "||") {
+            return token::Operator::type::LOGICAL_OR;
         } else if (assign::is(symbol)) {
             return token::Operator::type::ASSIGN;
         }
@@ -137,8 +194,8 @@ namespace parser {
         return false;
     }
     
-    bool token::Operator::condition::is(std::string_view symbol) {
-        if (symbol == "<" || symbol == ">" || symbol == "<=" || symbol == ">=" || symbol == "==" || symbol == "!=" || symbol == "&&" || symbol == "||") {
+    bool token::Operator::comparison::is(std::string_view symbol) {
+        if (symbol == "<" || symbol == ">" || symbol == "<=" || symbol == ">=" || symbol == "==" || symbol == "!=") {
             return true;
         }
 
@@ -154,7 +211,7 @@ namespace parser {
     }
 
     void token::Operator::base::factory(unit::base* currentUnit) {
-        if (currentUnit->passIndex != unit::pass::SECOND) return;
+        if (currentUnit->passIndex != unit::pass::THIRD) return;
 
         // <bool a> = 1 == 1 && 1 & 1
         // a = <1 == 1> && <1 & 1>
@@ -190,9 +247,9 @@ namespace parser {
             token::Operator::base::combinator(currentUnit, i, token::Operator::type::BITSHIFT_RIGHT);
         }
 
-        // Conditionals
+        // Comparisons: '<' '>' '<=' '>=' '==' '!='
         for (size_t i = 0; i < currentUnit->tokens.size(); i++) {
-            token::Operator::base::combinator(currentUnit, i, token::Operator::type::CONDITION);
+            token::Operator::base::combinator(currentUnit, i, token::Operator::type::COMPARISON);
         }
 
         // '&' '¤' '|'
@@ -202,13 +259,23 @@ namespace parser {
             token::Operator::base::combinator(currentUnit, i, token::Operator::type::OR);
         }
 
+        // '&&'
+        for (size_t i = 0; i < currentUnit->tokens.size(); i++) {
+            token::Operator::base::combinator(currentUnit, i, token::Operator::type::LOGICAL_AND);
+        }
+
+        // '||'
+        for (size_t i = 0; i < currentUnit->tokens.size(); i++) {
+            token::Operator::base::combinator(currentUnit, i, token::Operator::type::LOGICAL_OR);
+        }
+
         // Assignments
         for (size_t i = 0; i < currentUnit->tokens.size(); i++) {
             token::Operator::base::combinator(currentUnit, i, token::Operator::type::ASSIGN);
         }
     }
 
-    void token::Operator::base::combinator(unit::base* currentUnit, size_t i, token::Operator::type t) {
+    void token::Operator::base::combinator(unit::base* currentUnit, size_t& i, token::Operator::type t) {
         // Checks if the current token is a operator token type, if so it needs to be accommodated.
         if (currentUnit->at<lexer::token::base>(i)->get_type() != lexer::token::types::OPERATOR) return;
 
@@ -244,9 +311,12 @@ namespace parser {
         // Exhaust consumed tokens (<exhaust + <not exhaust> + <exhaust>)
         currentUnit->tokens.erase(currentUnit->tokens.begin() + i + 1);
         currentUnit->tokens.erase(currentUnit->tokens.begin() + i - 1);
+
+        // Update index
+        i--;
     }
 
-    void token::Operator::fetcher::combinator(unit::base* currentUnit, size_t i) {
+    void token::Operator::fetcher::combinator(unit::base* currentUnit, size_t& i) {
         // Checks if the current token is a operator token type, if so it needs to be accommodated.
         if (currentUnit->at<lexer::token::base>(i)->get_type() != lexer::token::types::OPERATOR) return;
         if (toType(currentUnit->at<lexer::token::op>(i)->text) != token::Operator::type::FETCHER) return;
@@ -254,7 +324,6 @@ namespace parser {
         lexer::token::op* currentOperator = currentUnit->at<lexer::token::op>(i);
 
         token::base* left = currentUnit->at<lexer::token::base>(i - 1)->parsed;
-        token::base* right = currentUnit->at<lexer::token::base>(i + 1)->parsed;
 
         // Since each fetcher will always at conception cache where the right side is from, we dont need full recursion here
         if (!left) throw std::runtime_error("Use of undefined scope: " +  currentUnit->at<lexer::token::base>(i - 1)->toString());
@@ -323,12 +392,15 @@ namespace parser {
                 currentUnit->tokens.erase(currentUnit->tokens.begin() + i + 1);
                 currentUnit->tokens.erase(currentUnit->tokens.begin() + i - 1);
 
+                // Update index
+                i--;
+
                 return;
             }
         }
     }
 
-    void token::Operator::fix::base::combinator(unit::base* currentUnit, size_t i) {
+    void token::Operator::fix::base::combinator(unit::base* currentUnit, size_t& i) {
         // Checks if the current token is a operator token type, if so it needs to be accommodated.
         if (currentUnit->at<lexer::token::base>(i)->get_type() != lexer::token::types::OPERATOR) return;
 
@@ -336,6 +408,8 @@ namespace parser {
         if (currentUnit->tokens.size() <= 1) throw std::runtime_error("Incomplete operator token at index " + std::to_string(i));
 
         lexer::token::op* currentOperator = currentUnit->at<lexer::token::op>(i);
+
+        if (!token::Operator::fix::is(currentOperator->text)) return;   // not ++ or --
 
         // Fix operators need at least 2 tokens: {OP, operand} or {operand, OP}
         if (currentUnit->tokens.size() < 2) throw std::runtime_error("Not enough tokens to form: " + currentOperator->toString());
@@ -383,8 +457,11 @@ namespace parser {
         // But keep the operator token itself (at position i) as it now represents the parsed operation
         if (fixity == fix::type::POST) {
             currentUnit->tokens.erase(currentUnit->tokens.begin() + i - 1);
+            // Update index
+            i--;
         } else if (fixity == fix::type::PRE) {
             currentUnit->tokens.erase(currentUnit->tokens.begin() + i + 1);
+            // Index remains the same
         }
     }
 
