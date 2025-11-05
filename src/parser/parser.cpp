@@ -22,7 +22,8 @@ namespace parser {
                 token::number::factory(this, index);
                 token::object::factory(this, index);
                 token::scope::parenthesis::factory(this, index);
-                token::scope::function::factory(this, index);
+                token::function::factory(this, index);
+                token::scope::Class::factory(this, index);
                 // -_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
                 
             }
@@ -561,7 +562,34 @@ namespace parser {
         currentWrapper->parsed = newScope;
     }
 
-    void token::scope::function::factory(unit::base* currentUnit, size_t& startIndex) {
+    void token::scope::Class::factory(unit::base* currentUnit, size_t& startIndex) {
+        if (currentUnit->passIndex != unit::pass::SECOND) return;
+
+        if (startIndex + 1 >= currentUnit->tokens.size()) return; // Not enough tokens to form a class
+        if (currentUnit->at<lexer::token::base>(startIndex)->get_type() != lexer::token::types::TEXT) return;
+        if (currentUnit->at<lexer::token::base>(startIndex + 1)->get_type() != lexer::token::types::WRAPPER || currentUnit->at<lexer::token::wrapper>(startIndex + 1)->type != lexer::token::wrapper::types::CURLY_BRACKETS) return;
+     
+        // Check all used tokens are parsed
+        if (
+            !currentUnit->at<lexer::token::text>(startIndex)->parsed ||
+            !currentUnit->at<lexer::token::wrapper>(startIndex + 1)->parsed
+        ) return;
+
+        token::object* SymbolObject = dynamic_cast<token::object*>(currentUnit->at<lexer::token::text>(startIndex)->parsed);
+        token::scope::base* Body = dynamic_cast<token::scope::base*>(currentUnit->at<lexer::token::wrapper>(startIndex + 1)->parsed);
+
+        token::scope::Class::base* newClass = new token::scope::Class::base(
+            token::info(SymbolObject),
+            Body
+        );
+
+        currentUnit->at<lexer::token::text>(startIndex)->parsed = newClass;
+
+        // remove i+1
+        currentUnit->tokens.erase(currentUnit->tokens.begin() + startIndex + 1);
+    }
+
+    void token::function::factory(unit::base* currentUnit, size_t& startIndex) {
         if (currentUnit->passIndex != unit::pass::SECOND) return;    // Functions need definitions to be parsed first.
 
         // <object> <parenthesis (round)> <parenthesis (curly)>
@@ -581,7 +609,7 @@ namespace parser {
         token::scope::base* Parameters = dynamic_cast<token::scope::base*>(currentUnit->at<lexer::token::wrapper>(startIndex + 1)->parsed);
         token::scope::base* Body = dynamic_cast<token::scope::base*>(currentUnit->at<lexer::token::wrapper>(startIndex + 2)->parsed);
         
-        token::scope::function::base* newFunction = new token::scope::function::base(
+        token::function::base* newFunction = new token::function::base(
             token::info(SymbolObject),
             Parameters,
             Body

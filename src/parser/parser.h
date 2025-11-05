@@ -65,6 +65,8 @@ namespace parser {
             SCOPE,          // Any occurrence of a scope block (function, class, namespace, parenthesis, etc).
             CALLER,         // Function call operator.
             NUMBER,         // Any number in Real space
+            FUNCTION,
+            CLASS,
         };
         
         namespace scope {
@@ -141,19 +143,8 @@ namespace parser {
 
         namespace scope {
 
-            enum class type {
-                UNKNOWN,
-                FUNCTION,
-                CLASS,
-                CONDITION,
-                LOOP,
-                PARENTHESIS
-            };
-
             class base : public token::base {
             public:
-                type scopeType = type::UNKNOWN;
-
                 std::vector<token::base*> definitions;
                 std::vector<token::base*> children;
 
@@ -178,18 +169,35 @@ namespace parser {
                 extern void factory(unit::base* /*Current Translation Unit State*/, size_t& /*Start Index*/);
             }
 
-            namespace function {
-                // A function is just a helper container for chained parenthesis's
+            namespace Class {
+                // Uses scope::base::definition as the defined
+                // Uses scope::base::children as the default constructor code
+                extern void factory(unit::base* /*Current Translation Unit State*/, size_t& /*Start Index*/);
+
                 class base : public token::base {
                 public:
-                    scope::base* parameters = nullptr;
-                    scope::base* body = nullptr;
+                    scope::base* data = nullptr;
 
-                    base(info Info, scope::base* Params, scope::base* Body) : token::base(Info), parameters(Params), body(Body) {}
+                    base(info Info, scope::base* Data) : token::base(Info), data(Data) {
+                        flags = token::type::CLASS;
+                    }
                 };
-
-                extern void factory(unit::base* /*Current Translation Unit State*/, size_t& /*Start Index*/);
             }
+        }
+        
+        namespace function {
+            // A function is just a helper container for chained parenthesis's
+            class base : public token::base {
+            public:
+                scope::base* parameters = nullptr;
+                scope::base* body = nullptr;
+
+                base(info Info, scope::base* Params, scope::base* Body) : token::base(Info), parameters(Params), body(Body) {
+                    flags = token::type::FUNCTION;
+                }
+            };
+
+            extern void factory(unit::base* /*Current Translation Unit State*/, size_t& /*Start Index*/);
         }
 
         namespace Operator {

@@ -394,6 +394,13 @@ namespace lexer{
                     continue;
                 }
             }
+            else if (tokens[i]->get_type() == token::types::WRAPPER) {
+                auto* wrapper = static_cast<token::wrapper*>(tokens[i]);
+
+                if (wrapper->type != token::wrapper::types::CHARACTER && wrapper->type != token::wrapper::types::STRING) {
+                    remove_space_tokens(wrapper->tokens);
+                }
+            }
 
             ++i;
         }

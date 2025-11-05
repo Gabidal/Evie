@@ -16,6 +16,8 @@ namespace tester {
         parserTester() : utils::TestSuite("parser Tester") {
             add_test("Simple Definition", "single type definition", test_simple_definition);
             add_test("Operation Order", "test operator precedence and associativity", test_operation_order);
+            add_test("Simple Parenthesis", "test parenthesis handling in expressions", test_simple_parenthesis);
+            add_test("Chained Parenthesis", "test nested parenthesis handling", test_chained_parenthesis);
         }
 
     private:
@@ -232,6 +234,138 @@ namespace tester {
             ASSERT_TRUE(geOp->right != nullptr);
             ASSERT_EQ((int)parser::token::type::OBJECT, (int)geOp->right->flags);
             ASSERT_EQ((std::string_view)"d", geOp->right->symbol);
+        }
+    
+        static void test_simple_parenthesis() {
+            auto lexerOutput = lexer::tokenize(
+            "int a, int b, int c, int d\n"
+            "a = (c + b) * d\n"
+            , 0);
+
+            parser::token::scope::base* globalScope = new parser::token::scope::base(
+                parser::token::info(
+                    parser::token::type::SCOPE,
+                    lexer::token::position(0, 0, 0),
+                    nullptr,
+                    "global"
+                ),
+                lexerOutput
+            );
+
+            parser::unit::base parse(parser::unit::pass::FIRST, globalScope);
+            parse.factory();
+
+            ASSERT_EQ((size_t)5, globalScope->children.size());
+            ASSERT_TRUE(globalScope->children[4]->flags == parser::token::type::OPERATOR);
+            auto assignOp = static_cast<parser::token::Operator::base*>(globalScope->children[4]);
+            ASSERT_EQ((std::string_view)"=", assignOp->symbol);
+            ASSERT_TRUE(assignOp->left->flags == parser::token::type::OBJECT);
+            ASSERT_EQ((std::string_view)"a", assignOp->left->symbol);
+            ASSERT_TRUE(assignOp->right->flags == parser::token::type::OPERATOR);
+            auto mulOp = static_cast<parser::token::Operator::base*>(assignOp->right);
+            ASSERT_EQ((std::string_view)"*", mulOp->symbol);
+            ASSERT_TRUE(mulOp->right->flags == parser::token::type::OBJECT);
+            ASSERT_EQ((std::string_view)"d", mulOp->right->symbol);
+            ASSERT_TRUE(mulOp->left->flags == parser::token::type::SCOPE);
+            auto parenScope = static_cast<parser::token::scope::base*>(mulOp->left);
+            ASSERT_EQ((size_t)1, parenScope->children.size());
+            ASSERT_TRUE(parenScope->children[0]->flags == parser::token::type::OPERATOR);
+            auto addOp = static_cast<parser::token::Operator::base*>(parenScope->children[0]);
+            ASSERT_EQ((std::string_view)"+", addOp->symbol);
+            ASSERT_TRUE(addOp->left->flags == parser::token::type::OBJECT);
+            ASSERT_EQ((std::string_view)"c", addOp->left->symbol);
+            ASSERT_TRUE(addOp->right->flags == parser::token::type::OBJECT);
+            ASSERT_EQ((std::string_view)"b", addOp->right->symbol);
+        }
+
+        static void test_chained_parenthesis() {
+            auto lexerOutput = lexer::tokenize(
+            "void foo(int a, int b) {\n"
+            "  int c = a + b\n"
+            "  int d = c - a\n"
+            "}"
+            , 0);
+
+            parser::token::scope::base* globalScope = new parser::token::scope::base(
+                parser::token::info(
+                    parser::token::type::SCOPE,
+                    lexer::token::position(0, 0, 0),
+                    nullptr,
+                    "global"
+                ),
+                lexerOutput
+            );
+
+            parser::unit::base parse(parser::unit::pass::FIRST, globalScope);
+            parse.factory();
+
+            ASSERT_TRUE(globalScope->children.size() == 1);
+            ASSERT_TRUE(globalScope->children[0]->flags == parser::token::type::FUNCTION);
+            auto funcScope = static_cast<parser::token::function::base*>(globalScope->children[0]);
+            ASSERT_EQ((std::string_view)"foo", funcScope->symbol);
+            ASSERT_TRUE(funcScope->parameters->definitions.size() == 2);
+            ASSERT_TRUE(funcScope->body->children.size() == 2);
+
+            ASSERT_TRUE(funcScope->parameters->definitions[0]->flags == parser::token::type::DEFINITION);
+            ASSERT_EQ((std::string_view)"a", funcScope->parameters->definitions[0]->symbol);
+            ASSERT_TRUE(funcScope->parameters->definitions[1]->flags == parser::token::type::DEFINITION);
+            ASSERT_EQ((std::string_view)"b", funcScope->parameters->definitions[1]->symbol);
+
+            ASSERT_TRUE(funcScope->body->definitions[0]->flags == parser::token::type::DEFINITION);
+            auto c_Def = static_cast<parser::token::definition*>(funcScope->body->definitions[0]);
+            ASSERT_EQ((std::string_view)"c", c_Def->symbol);
+            ASSERT_TRUE(funcScope->body->definitions[1]->flags == parser::token::type::DEFINITION);
+            auto d_Def = static_cast<parser::token::definition*>(funcScope->body->definitions[1]);
+            ASSERT_EQ((std::string_view)"d", d_Def->symbol);
+
+            ASSERT_TRUE(funcScope->body->children[0]->flags == parser::token::type::OPERATOR);
+            auto assignCOp = static_cast<parser::token::Operator::base*>(funcScope->body->children[0]);
+            ASSERT_EQ((std::string_view)"=", assignCOp->symbol);
+            ASSERT_TRUE(assignCOp->left->flags == parser::token::type::OBJECT);
+            ASSERT_EQ((std::string_view)"c", assignCOp->left->symbol);
+            ASSERT_TRUE(assignCOp->right->flags == parser::token::type::OPERATOR);
+            auto addOp = static_cast<parser::token::Operator::base*>(assignCOp->right);
+            ASSERT_EQ((std::string_view)"+", addOp->symbol);
+            ASSERT_TRUE(addOp->left->flags == parser::token::type::OBJECT);
+            ASSERT_EQ((std::string_view)"a", addOp->left->symbol);
+            ASSERT_TRUE(addOp->right->flags == parser::token::type::OBJECT);
+            ASSERT_EQ((std::string_view)"b", addOp->right->symbol);
+            ASSERT_TRUE(funcScope->body->children[1]->flags == parser::token::type::OPERATOR);
+            auto assignDOp = static_cast<parser::token::Operator::base*>(funcScope->body->children[1]);
+            ASSERT_EQ((std::string_view)"=", assignDOp->symbol);
+            ASSERT_TRUE(assignDOp->left->flags == parser::token::type::OBJECT);
+            ASSERT_EQ((std::string_view)"d", assignDOp->left->symbol);
+            ASSERT_TRUE(assignDOp->right->flags == parser::token::type::OPERATOR);
+            auto subOp = static_cast<parser::token::Operator::base*>(assignDOp->right);
+            ASSERT_EQ((std::string_view)"-", subOp->symbol);
+            ASSERT_TRUE(subOp->left->flags == parser::token::type::OBJECT);
+            ASSERT_EQ((std::string_view)"c", subOp->left->symbol);
+            ASSERT_TRUE(subOp->right->flags == parser::token::type::OBJECT);
+            ASSERT_EQ((std::string_view)"a", subOp->right->symbol);
+        }
+
+        static void test_class_construct() {
+            auto lexerOutput = lexer::tokenize(
+            "class a {\n"
+            "  int b = 0\n"
+            "  int c = b\n"
+            "}\n"
+            , 0);
+
+            parser::token::scope::base* globalScope = new parser::token::scope::base(
+                parser::token::info(
+                    parser::token::type::SCOPE,
+                    lexer::token::position(0, 0, 0),
+                    nullptr,
+                    "global"
+                ),
+                lexerOutput
+            );
+
+            parser::unit::base parse(parser::unit::pass::FIRST, globalScope);
+            parse.factory();
+
+            ASSERT_TRUE(globalScope->children.size() == 1);
         }
     };
 }
