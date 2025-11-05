@@ -33,16 +33,6 @@ namespace parser {
             pass passIndex = pass::FIRST;             // Describes which pass through of the input token loop-through we currently are from.
             token::scope::base* parent = nullptr;     // Gives data of the current scope.
             lexerOutput& tokens;                      // Gives a set of indicies for the current scope of lexed tokens
-            
-            /**
-             * @brief This is how it works:
-             * All patterns output here, then if this is a subUnit the parentUnit will subjugate all subUnit output into specified pattern as an AST member.
-             * @example:
-             *  a = 1 + 2 <- here the '+' will be triggered first, collecting 1 and 2.
-             *  Now the next pattern knowing that the right side is exhausted, but not outside capacity, means it is processed token found in the unit::base::output.
-             *  a = <exhausted>
-             */
-            std::vector<token::base*> output;
 
             base(lexerOutput& Tokens) : tokens(Tokens) {}
             base(pass i, token::scope::base* p);
@@ -106,6 +96,8 @@ namespace parser {
         // If we use this we can use it with no need to worry about slicing, although just using token::base as info packet is also fine tbh 🙄
         struct info final : public parser::token::base {
             using parser::token::base::base;
+
+            info(parser::token::base* other) : parser::token::base(*other) {}
         };
 
         class definition : public token::base {
@@ -132,14 +124,19 @@ namespace parser {
         class number : public token::base, public lexer::token::number {
         public:
             using lexer::token::number::number;
+            uint8_t minRequiredByteSize;
 
-            number(info Info, const std::string& TextValue) : parser::token::base(Info), lexer::token::number(Info.position, TextValue) {}
+            number(info Info, const std::string& TextValue) : parser::token::base(Info), lexer::token::number(Info.position, TextValue) {
+                determineSize();
+            }
 
             std::string toString() override {
                 return "[PARSER NUMBER: \"" + text + "\" " + parser::token::base::toString() + "]";
             }
 
             static void factory(unit::base* /*Current Translation Unit State*/, size_t& /*Current Index*/);
+        private:
+            void determineSize();
         };
 
         namespace scope {
@@ -155,6 +152,8 @@ namespace parser {
 
             class base : public token::base {
             public:
+                type scopeType = type::UNKNOWN;
+
                 std::vector<token::base*> definitions;
                 std::vector<token::base*> children;
 
@@ -174,6 +173,23 @@ namespace parser {
                     return parent ? parent->findClosestDefinition(Symbol) : nullptr;
                 }
             };
+
+            namespace parenthesis {
+                extern void factory(unit::base* /*Current Translation Unit State*/, size_t& /*Start Index*/);
+            }
+
+            namespace function {
+                // A function is just a helper container for chained parenthesis's
+                class base : public token::base {
+                public:
+                    scope::base* parameters = nullptr;
+                    scope::base* body = nullptr;
+
+                    base(info Info, scope::base* Params, scope::base* Body) : token::base(Info), parameters(Params), body(Body) {}
+                };
+
+                extern void factory(unit::base* /*Current Translation Unit State*/, size_t& /*Start Index*/);
+            }
         }
 
         namespace Operator {

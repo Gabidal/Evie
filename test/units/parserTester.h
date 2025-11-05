@@ -39,7 +39,6 @@ namespace tester {
             parser::unit::base parse(parser::unit::pass::FIRST, globalScope);
             parse.factory();
 
-            ASSERT_EQ((size_t)0, parse.output.size());
             ASSERT_EQ((size_t)2, globalScope->definitions.size());
 
             auto a_Def = static_cast<parser::token::definition*>(globalScope->definitions[0]);

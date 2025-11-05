@@ -1,4 +1,7 @@
 #include "parser.h"
+#include <charconv>
+#include <limits>
+#include <cfloat>
 
 namespace parser {
 
@@ -18,6 +21,8 @@ namespace parser {
                 token::definition::factory(this, index);
                 token::number::factory(this, index);
                 token::object::factory(this, index);
+                token::scope::parenthesis::factory(this, index);
+                token::scope::function::factory(this, index);
                 // -_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
                 
             }
@@ -25,6 +30,13 @@ namespace parser {
             // SPECIAL FACTORIES:
             // -_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
             token::Operator::base::factory(this);
+        }
+
+        // Harvest parsed tokens and append them to scope children
+        for (auto& t : tokens) {
+            if (t->parsed) {
+                parent->children.push_back(t->parsed);
+            }
         }
     }
 
@@ -55,21 +67,15 @@ namespace parser {
         if (currentUnit->passIndex != unit::pass::FIRST) return;    // Definitions are only created in the first pass.
         if (currentUnit->tokens.size() < 2) return;                 // Need at least two tokens to form a definition. one for type and one for name
 
-        // Check if current text token is defined or not:
-        // - If is, then check next token if it is also an text token and is defined:
-        //   - If is, then iterate until found text token which is not defined.
-        //   - If not, then that text token which is not defined the new definition name and inherits all prior defined text symbols as types.
-        // - If not, return.
-
         utils::range textTokens = findSubsequentTokens(currentUnit, lexer::token::types::TEXT, startIndex);
 
         if (textTokens.length() < 2) return; // Need at least two text tokens to form a definition.
 
         lexer::token::text* name = currentUnit->at<lexer::token::text>(textTokens.max - 1);
 
-        // We can simply check that the last element is not defined:
-        if (currentUnit->parent->findClosestDefinition(name->data) != nullptr) {
-            throw std::runtime_error("Redefinition of symbol '" + name->data + "'");
+        if (name->parsed) {
+            // This text token is already parsed, cannot be a definition name.
+            return;
         }
 
         // Let's now also fetch the symbols of each inherited text token.
@@ -145,6 +151,47 @@ namespace parser {
             );
 
             currentNumber->parsed = newNumber;
+        }
+    }
+
+    void token::number::determineSize() {
+        using namespace std;
+        const char* begin = text.data();
+        const char* end = text.data() + text.size();
+
+        if (number_type == types::INTEGER) {
+            long long value{};
+            auto [ptr, ec] = from_chars(begin, end, value);
+            if (ec == errc::result_out_of_range) { minRequiredByteSize = 8; return; }
+
+            if (value >= numeric_limits<int8_t>::min() && value <= numeric_limits<int8_t>::max())
+                minRequiredByteSize = 1;
+            else if (value >= numeric_limits<int16_t>::min() && value <= numeric_limits<int16_t>::max())
+                minRequiredByteSize = 2;
+            else if (value >= numeric_limits<int32_t>::min() && value <= numeric_limits<int32_t>::max())
+                minRequiredByteSize = 4;
+            else
+                minRequiredByteSize = 8;
+        }
+        else if (number_type == types::FLOAT) {
+            double value = std::stod(text);
+            float f = static_cast<float>(value);
+            // check if conversion preserves value
+            minRequiredByteSize = (static_cast<double>(f) == value) ? 4 : 8;
+        }
+        else if (number_type == types::HEX) {
+            unsigned long long value{};
+            auto [ptr, ec] = from_chars(begin, end, value, 2);
+            if (ec == errc::result_out_of_range) { minRequiredByteSize = 8; return; }
+
+            if (value <= std::numeric_limits<uint8_t>::max())
+                minRequiredByteSize = 1;
+            else if (value <= std::numeric_limits<uint16_t>::max())
+                minRequiredByteSize = 2;
+            else if (value <= std::numeric_limits<uint32_t>::max())
+                minRequiredByteSize = 4;
+            else
+                minRequiredByteSize = 8;
         }
     }
 
@@ -465,4 +512,85 @@ namespace parser {
         }
     }
 
+    void token::scope::parenthesis::factory(unit::base* currentUnit, size_t& startIndex) {
+        if (currentUnit->passIndex != unit::pass::FIRST) return;    // Parenthesis's aren't really dependant of anything else, so they can be one of the first to be parsed.
+
+        if (currentUnit->at<lexer::token::base>(startIndex)->get_type() != lexer::token::types::WRAPPER) return;
+
+        lexer::token::wrapper* currentWrapper = currentUnit->at<lexer::token::wrapper>(startIndex);
+
+        if (
+            currentWrapper->type != lexer::token::wrapper::types::ROUND_BRACKETS && 
+            currentWrapper->type != lexer::token::wrapper::types::CURLY_BRACKETS &&
+            currentWrapper->type != lexer::token::wrapper::types::SQUARE_BRACKETS
+        ) return; // Not a parenthesis type wrapper
+
+        parser::token::scope::base* contextualParent = currentUnit->parent;
+
+        // This may be controversial, but:
+        // For: [](){} <-- each prior parenthesis contains definitions that the next parenthesis may try to access
+        // Same for: func(){} <-- where the parameters are defined in the prior parenthesis
+        // Same for: func<>(){} <-- same here :)
+
+        // Check if i-1 exists and if it is a wrapper
+        if (startIndex > 0 && currentUnit->at<lexer::token::base>(startIndex - 1)->get_type() == lexer::token::types::WRAPPER) {
+            lexer::token::wrapper* priorWrapper = currentUnit->at<lexer::token::wrapper>(startIndex - 1);
+
+            // Check if prior wrapper is parsed and is a scope, since we do this for each wrapper all prior i-n scopes are already set
+            if (priorWrapper->parsed && priorWrapper->parsed->flags == token::type::SCOPE) {
+                contextualParent = static_cast<token::scope::base*>(priorWrapper->parsed);
+            }
+        }
+
+        // First we need to create an local scope to give to our sub-parser
+        token::scope::base* newScope = new token::scope::base(
+            token::info(
+                token::type::SCOPE,
+                currentWrapper->get_start(),
+                contextualParent,
+                std::string("") + currentWrapper->identity
+            ),
+            currentWrapper->tokens
+        );
+
+        // Now we can create the sub-parser unit for this scope
+        unit::base subParserUnit(unit::pass::FIRST, newScope);
+        subParserUnit.factory();
+
+        // Now we can write the parsed scope into the wrapper token
+        currentWrapper->parsed = newScope;
+    }
+
+    void token::scope::function::factory(unit::base* currentUnit, size_t& startIndex) {
+        if (currentUnit->passIndex != unit::pass::SECOND) return;    // Functions need definitions to be parsed first.
+
+        // <object> <parenthesis (round)> <parenthesis (curly)>
+        if (startIndex + 2 >= currentUnit->tokens.size()) return; // Not enough tokens to form a function
+        if (currentUnit->at<lexer::token::base>(startIndex)->get_type() != lexer::token::types::TEXT) return;
+        if (currentUnit->at<lexer::token::base>(startIndex + 1)->get_type() != lexer::token::types::WRAPPER || currentUnit->at<lexer::token::wrapper>(startIndex + 1)->type != lexer::token::wrapper::types::ROUND_BRACKETS) return;
+        if (currentUnit->at<lexer::token::base>(startIndex + 2)->get_type() != lexer::token::types::WRAPPER || currentUnit->at<lexer::token::wrapper>(startIndex + 2)->type != lexer::token::wrapper::types::CURLY_BRACKETS) return;
+
+        // check that all of them are parsed
+        if (
+            !currentUnit->at<lexer::token::text>(startIndex)->parsed ||
+            !currentUnit->at<lexer::token::wrapper>(startIndex + 1)->parsed ||
+            !currentUnit->at<lexer::token::wrapper>(startIndex + 2)->parsed
+        ) return;
+
+        token::object* SymbolObject = dynamic_cast<token::object*>(currentUnit->at<lexer::token::text>(startIndex)->parsed);
+        token::scope::base* Parameters = dynamic_cast<token::scope::base*>(currentUnit->at<lexer::token::wrapper>(startIndex + 1)->parsed);
+        token::scope::base* Body = dynamic_cast<token::scope::base*>(currentUnit->at<lexer::token::wrapper>(startIndex + 2)->parsed);
+        
+        token::scope::function::base* newFunction = new token::scope::function::base(
+            token::info(SymbolObject),
+            Parameters,
+            Body
+        );
+
+        currentUnit->at<lexer::token::text>(startIndex)->parsed = newFunction;
+
+        // remove i+1 and i+2
+        currentUnit->tokens.erase(currentUnit->tokens.begin() + startIndex + 2);
+        currentUnit->tokens.erase(currentUnit->tokens.begin() + startIndex + 1);
+    }
 }
