@@ -51,7 +51,9 @@ namespace parser {
             }
         };
 
-        ::utils::range findSubsequentTokens(base* /*Current Translation Unit*/, lexer::token::types /*Token type*/, size_t /*Start Index*/);
+        extern ::utils::range findSubsequentTokens(base* /*Current Translation Unit*/, lexer::token::types /*Token type*/, size_t /*Start Index*/);
+
+        extern void replaceDefinition(token::base* old, token::base* New);
     }
 
     namespace token {
@@ -178,7 +180,7 @@ namespace parser {
                 public:
                     scope::base* data = nullptr;
 
-                    base(info Info, scope::base* Data) : token::base(Info), data(Data) {
+                    base(info Info, scope::base* Data = nullptr) : token::base(Info), data(Data) {
                         flags = token::type::CLASS;
                     }
                 };
@@ -192,7 +194,7 @@ namespace parser {
                 scope::base* parameters = nullptr;
                 scope::base* body = nullptr;
 
-                base(info Info, scope::base* Params, scope::base* Body) : token::base(Info), parameters(Params), body(Body) {
+                base(info Info, scope::base* Params = nullptr, scope::base* Body = nullptr) : token::base(Info), parameters(Params), body(Body) {
                     flags = token::type::FUNCTION;
                 }
             };

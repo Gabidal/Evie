@@ -18,6 +18,7 @@ namespace tester {
             add_test("Operation Order", "test operator precedence and associativity", test_operation_order);
             add_test("Simple Parenthesis", "test parenthesis handling in expressions", test_simple_parenthesis);
             add_test("Chained Parenthesis", "test nested parenthesis handling", test_chained_parenthesis);
+            add_test("class Definition", "test class definition parsing", test_class_construct);
         }
 
     private:
@@ -366,6 +367,17 @@ namespace tester {
             parse.factory();
 
             ASSERT_TRUE(globalScope->children.size() == 1);
+            ASSERT_TRUE(globalScope->children[0]->flags == parser::token::type::CLASS);
+            auto classToken = static_cast<parser::token::scope::Class::base*>(globalScope->children[0]);
+            ASSERT_EQ((std::string_view)"a", classToken->symbol);
+            ASSERT_TRUE(classToken->data->definitions.size() == 2);
+            ASSERT_TRUE(classToken->data->definitions[0]->flags == parser::token::type::DEFINITION);
+            auto b_Def = static_cast<parser::token::definition*>(classToken->data->definitions[0]);
+            ASSERT_EQ((std::string_view)"b", b_Def->symbol);
+            ASSERT_TRUE(classToken->data->definitions[1]->flags == parser::token::type::DEFINITION);
+            auto c_Def = static_cast<parser::token::definition*>(classToken->data->definitions[1]);
+            ASSERT_EQ((std::string_view)"c", c_Def->symbol);
+            
         }
     };
 }

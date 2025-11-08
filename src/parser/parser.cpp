@@ -53,6 +53,17 @@ namespace parser {
         return result;
     }
 
+    void unit::replaceDefinition(token::base* old, token::base* New) {
+        if (!old->parent) throw std::runtime_error("Cannot replace definition of a token with no parent scope.");
+
+        for (auto& t : old->parent->definitions) {
+            if (t == old) {
+                t = New;
+                return;
+            }
+        }
+    }
+
     token::base* token::base::findClosestDefinition(std::string_view Symbol) const {
         // Default behaviour is to pipe this call to the parent hoping it might hit the scope class.
         return parent ? parent->findClosestDefinition(Symbol) : nullptr;
@@ -98,7 +109,6 @@ namespace parser {
             inherited
         );
 
-        // Instead of setting parsed on the name token, we will let the object factory do that for us.
         // NOTE: For overloads to work we need to inject the definition into the parsed, this gives the object factory a "TRUE" reference to the correct definition and not just the first occurring overload.
         name->parsed = newDefinition;
 
@@ -109,7 +119,7 @@ namespace parser {
     }
 
     void token::object::factory(unit::base* currentUnit, size_t& startIndex) {
-        if (currentUnit->passIndex != unit::pass::SECOND) return;    // Definitions are only created in the first pass, so objects on second pass, this way we can use references before their declaration, good for headers :).
+        if (currentUnit->passIndex != unit::pass::FIRST) return;    // Definitions are only created in the first pass, so objects on second pass, this way we can use references before their declaration, good for headers :).
     
         lexer::token::text* currentText = currentUnit->at<lexer::token::text>(startIndex);
 
@@ -520,6 +530,8 @@ namespace parser {
 
         lexer::token::wrapper* currentWrapper = currentUnit->at<lexer::token::wrapper>(startIndex);
 
+        if (currentWrapper->parsed) return;
+
         if (
             currentWrapper->type != lexer::token::wrapper::types::ROUND_BRACKETS && 
             currentWrapper->type != lexer::token::wrapper::types::CURLY_BRACKETS &&
@@ -563,25 +575,31 @@ namespace parser {
     }
 
     void token::scope::Class::factory(unit::base* currentUnit, size_t& startIndex) {
-        if (currentUnit->passIndex != unit::pass::SECOND) return;
+        if (currentUnit->passIndex != unit::pass::FIRST) return;
 
         if (startIndex + 1 >= currentUnit->tokens.size()) return; // Not enough tokens to form a class
         if (currentUnit->at<lexer::token::base>(startIndex)->get_type() != lexer::token::types::TEXT) return;
         if (currentUnit->at<lexer::token::base>(startIndex + 1)->get_type() != lexer::token::types::WRAPPER || currentUnit->at<lexer::token::wrapper>(startIndex + 1)->type != lexer::token::wrapper::types::CURLY_BRACKETS) return;
-     
+        if (startIndex + 2 < currentUnit->tokens.size() && currentUnit->at<lexer::token::base>(startIndex + 2)->get_type() == lexer::token::types::WRAPPER) return;    // Skip function patterns
+
         // Check all used tokens are parsed
         if (
-            !currentUnit->at<lexer::token::text>(startIndex)->parsed ||
-            !currentUnit->at<lexer::token::wrapper>(startIndex + 1)->parsed
+            !currentUnit->at<lexer::token::text>(startIndex)->parsed ||     // Symbol token needs to be parsed
+            currentUnit->at<lexer::token::wrapper>(startIndex + 1)->parsed         // Skip is the parenthesis is already parsed, since it needs to be parsed via this function.
         ) return;
 
         token::object* SymbolObject = dynamic_cast<token::object*>(currentUnit->at<lexer::token::text>(startIndex)->parsed);
-        token::scope::base* Body = dynamic_cast<token::scope::base*>(currentUnit->at<lexer::token::wrapper>(startIndex + 1)->parsed);
-
-        token::scope::Class::base* newClass = new token::scope::Class::base(
-            token::info(SymbolObject),
-            Body
-        );
+        
+        token::scope::Class::base* newClass = new token::scope::Class::base(token::info(SymbolObject));
+        
+        // Now that the class object pointer has been set, we can parse the parenthesis token
+        unit::replaceDefinition(SymbolObject->reference, newClass);
+        
+        token::scope::parenthesis::factory(currentUnit, ++startIndex);
+        token::scope::base* Body = dynamic_cast<token::scope::base*>(currentUnit->at<lexer::token::wrapper>(startIndex)->parsed);
+        startIndex--;   // go back.
+        
+        newClass->data = Body;
 
         currentUnit->at<lexer::token::text>(startIndex)->parsed = newClass;
 
@@ -590,7 +608,7 @@ namespace parser {
     }
 
     void token::function::factory(unit::base* currentUnit, size_t& startIndex) {
-        if (currentUnit->passIndex != unit::pass::SECOND) return;    // Functions need definitions to be parsed first.
+        if (currentUnit->passIndex != unit::pass::FIRST) return;    // Functions need definitions to be parsed first.
 
         // <object> <parenthesis (round)> <parenthesis (curly)>
         if (startIndex + 2 >= currentUnit->tokens.size()) return; // Not enough tokens to form a function
@@ -600,20 +618,29 @@ namespace parser {
 
         // check that all of them are parsed
         if (
-            !currentUnit->at<lexer::token::text>(startIndex)->parsed ||
-            !currentUnit->at<lexer::token::wrapper>(startIndex + 1)->parsed ||
-            !currentUnit->at<lexer::token::wrapper>(startIndex + 2)->parsed
+            !currentUnit->at<lexer::token::text>(startIndex)->parsed ||             // Require the symbol token to be parsed
+            currentUnit->at<lexer::token::wrapper>(startIndex + 1)->parsed ||       // Skip if the parenthesis is already parsed, since it needs to be parsed via this function.
+            currentUnit->at<lexer::token::wrapper>(startIndex + 2)->parsed          // Skip if the body is already parsed, since it needs to be parsed via this function.
         ) return;
 
         token::object* SymbolObject = dynamic_cast<token::object*>(currentUnit->at<lexer::token::text>(startIndex)->parsed);
-        token::scope::base* Parameters = dynamic_cast<token::scope::base*>(currentUnit->at<lexer::token::wrapper>(startIndex + 1)->parsed);
-        token::scope::base* Body = dynamic_cast<token::scope::base*>(currentUnit->at<lexer::token::wrapper>(startIndex + 2)->parsed);
+        // token::scope::base* Parameters = dynamic_cast<token::scope::base*>(currentUnit->at<lexer::token::wrapper>(startIndex + 1)->parsed);
+        // token::scope::base* Body = dynamic_cast<token::scope::base*>(currentUnit->at<lexer::token::wrapper>(startIndex + 2)->parsed);
         
-        token::function::base* newFunction = new token::function::base(
-            token::info(SymbolObject),
-            Parameters,
-            Body
-        );
+        token::function::base* newFunction = new token::function::base(token::info(SymbolObject));
+
+        unit::replaceDefinition(SymbolObject->reference, newFunction);
+
+        // Now that the function object pointer has been set, we can parse the parenthesis token
+        token::scope::parenthesis::factory(currentUnit, ++startIndex);
+        token::scope::base* Parameters = dynamic_cast<token::scope::base*>(currentUnit->at<lexer::token::wrapper>(startIndex)->parsed);
+        newFunction->parameters = Parameters;
+        // Now parse the body
+        token::scope::parenthesis::factory(currentUnit, ++startIndex);
+        token::scope::base* Body = dynamic_cast<token::scope::base*>(currentUnit->at<lexer::token::wrapper>(startIndex)->parsed);
+        newFunction->body = Body;
+        
+        startIndex -= 2;   // go back.
 
         currentUnit->at<lexer::token::text>(startIndex)->parsed = newFunction;
 
