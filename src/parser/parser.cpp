@@ -19,11 +19,11 @@ namespace parser {
                 // FACTORIES:
                 // -_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
                 token::definition::factory(this, index);
+                token::function::factory(this, index);
+                token::scope::Class::factory(this, index);
                 token::number::factory(this, index);
                 token::object::factory(this, index);
                 token::scope::parenthesis::factory(this, index);
-                token::function::factory(this, index);
-                token::scope::Class::factory(this, index);
                 // -_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
                 
             }
@@ -119,7 +119,7 @@ namespace parser {
     }
 
     void token::object::factory(unit::base* currentUnit, size_t& startIndex) {
-        if (currentUnit->passIndex != unit::pass::FIRST) return;    // Definitions are only created in the first pass, so objects on second pass, this way we can use references before their declaration, good for headers :).
+        if (currentUnit->passIndex != unit::pass::SECOND) return;    // Definitions are only created in the first pass, so objects on second pass, this way we can use references before their declaration, good for headers :).
     
         lexer::token::text* currentText = currentUnit->at<lexer::token::text>(startIndex);
 
@@ -127,11 +127,10 @@ namespace parser {
 
         token::base* reference = currentText->parsed;
 
-        // Check if this text token is residue of an output of definition factory:
-        if (!reference || reference->flags != token::type::DEFINITION) {
-            // If not, then we need to find the defined manually
-            reference = currentUnit->parent->findClosestDefinition(currentText->data);
-        }
+        if (reference) return;
+
+        // If not, then we need to find the defined manually
+        reference = currentUnit->parent->findClosestDefinition(currentText->data);
 
         token::object* newObject = new token::object(
             token::info(
@@ -588,12 +587,12 @@ namespace parser {
             currentUnit->at<lexer::token::wrapper>(startIndex + 1)->parsed         // Skip is the parenthesis is already parsed, since it needs to be parsed via this function.
         ) return;
 
-        token::object* SymbolObject = dynamic_cast<token::object*>(currentUnit->at<lexer::token::text>(startIndex)->parsed);
+        token::definition* SymbolDefinition = dynamic_cast<token::definition*>(currentUnit->at<lexer::token::text>(startIndex)->parsed);
         
-        token::scope::Class::base* newClass = new token::scope::Class::base(token::info(SymbolObject));
+        token::scope::Class::base* newClass = new token::scope::Class::base(token::info(SymbolDefinition));
         
         // Now that the class object pointer has been set, we can parse the parenthesis token
-        unit::replaceDefinition(SymbolObject->reference, newClass);
+        unit::replaceDefinition(SymbolDefinition, newClass);
         
         token::scope::parenthesis::factory(currentUnit, ++startIndex);
         token::scope::base* Body = dynamic_cast<token::scope::base*>(currentUnit->at<lexer::token::wrapper>(startIndex)->parsed);
@@ -623,13 +622,11 @@ namespace parser {
             currentUnit->at<lexer::token::wrapper>(startIndex + 2)->parsed          // Skip if the body is already parsed, since it needs to be parsed via this function.
         ) return;
 
-        token::object* SymbolObject = dynamic_cast<token::object*>(currentUnit->at<lexer::token::text>(startIndex)->parsed);
-        // token::scope::base* Parameters = dynamic_cast<token::scope::base*>(currentUnit->at<lexer::token::wrapper>(startIndex + 1)->parsed);
-        // token::scope::base* Body = dynamic_cast<token::scope::base*>(currentUnit->at<lexer::token::wrapper>(startIndex + 2)->parsed);
+        token::definition* SymbolDefinition = dynamic_cast<token::definition*>(currentUnit->at<lexer::token::text>(startIndex)->parsed);
         
-        token::function::base* newFunction = new token::function::base(token::info(SymbolObject));
+        token::function::base* newFunction = new token::function::base(token::info(SymbolDefinition));
 
-        unit::replaceDefinition(SymbolObject->reference, newFunction);
+        unit::replaceDefinition(SymbolDefinition, newFunction);
 
         // Now that the function object pointer has been set, we can parse the parenthesis token
         token::scope::parenthesis::factory(currentUnit, ++startIndex);

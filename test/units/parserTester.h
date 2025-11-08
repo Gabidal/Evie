@@ -322,7 +322,7 @@ namespace tester {
             ASSERT_TRUE(funcScope->body->children[0]->flags == parser::token::type::OPERATOR);
             auto assignCOp = static_cast<parser::token::Operator::base*>(funcScope->body->children[0]);
             ASSERT_EQ((std::string_view)"=", assignCOp->symbol);
-            ASSERT_TRUE(assignCOp->left->flags == parser::token::type::OBJECT);
+            ASSERT_TRUE(assignCOp->left->flags == parser::token::type::DEFINITION);
             ASSERT_EQ((std::string_view)"c", assignCOp->left->symbol);
             ASSERT_TRUE(assignCOp->right->flags == parser::token::type::OPERATOR);
             auto addOp = static_cast<parser::token::Operator::base*>(assignCOp->right);
@@ -334,7 +334,7 @@ namespace tester {
             ASSERT_TRUE(funcScope->body->children[1]->flags == parser::token::type::OPERATOR);
             auto assignDOp = static_cast<parser::token::Operator::base*>(funcScope->body->children[1]);
             ASSERT_EQ((std::string_view)"=", assignDOp->symbol);
-            ASSERT_TRUE(assignDOp->left->flags == parser::token::type::OBJECT);
+            ASSERT_TRUE(assignDOp->left->flags == parser::token::type::DEFINITION);
             ASSERT_EQ((std::string_view)"d", assignDOp->left->symbol);
             ASSERT_TRUE(assignDOp->right->flags == parser::token::type::OPERATOR);
             auto subOp = static_cast<parser::token::Operator::base*>(assignDOp->right);
