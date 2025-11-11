@@ -157,7 +157,7 @@ namespace parser {
                 [[nodiscard]] token::base* findClosestDefinition(std::string_view Symbol) const override {
                     // Search in current scope first
                     for (auto it = definitions.rbegin(); it != definitions.rend(); ++it) {
-                        if ((*it)->flags == token::type::DEFINITION && (*it)->symbol == Symbol) {
+                        if ((*it)->symbol == Symbol) {
                             return *it;
                         }
                     }
@@ -176,11 +176,11 @@ namespace parser {
                 // Uses scope::base::children as the default constructor code
                 extern void factory(unit::base* /*Current Translation Unit State*/, size_t& /*Start Index*/);
 
-                class base : public token::base {
+                class base : public token::definition {
                 public:
                     scope::base* data = nullptr;
 
-                    base(info Info, scope::base* Data = nullptr) : token::base(Info), data(Data) {
+                    base(token::definition Info, scope::base* Data = nullptr) : token::definition(Info), data(Data) {
                         flags = token::type::CLASS;
                     }
                 };
@@ -189,12 +189,12 @@ namespace parser {
         
         namespace function {
             // A function is just a helper container for chained parenthesis's
-            class base : public token::base {
+            class base : public token::definition {
             public:
                 scope::base* parameters = nullptr;
                 scope::base* body = nullptr;
 
-                base(info Info, scope::base* Params = nullptr, scope::base* Body = nullptr) : token::base(Info), parameters(Params), body(Body) {
+                base(token::definition Info, scope::base* Params = nullptr, scope::base* Body = nullptr) : token::definition(Info), parameters(Params), body(Body) {
                     flags = token::type::FUNCTION;
                 }
             };

@@ -419,15 +419,23 @@ namespace parser {
 
         // Now that we have the definition of our closest fetcher from the chain, we can swift through its inheritances[i]->(casted to scope)->definitions and see if any of them contain right->symbol
         for (const auto& inheritedSymbol : closestFetcherDefinition->inherited) {
-            token::base* foundInScope = closestFetcherDefinition->parent->findClosestDefinition(inheritedSymbol);
-            if (!foundInScope) continue;
-
-            token::scope::base* foundScope = dynamic_cast<token::scope::base*>(foundInScope);
+            token::base* foundScope = closestFetcherDefinition->parent->findClosestDefinition(inheritedSymbol);
             if (!foundScope) continue;
 
             token::base* fetchedDefinition = foundScope->findClosestDefinition(rightSide->data);
             if (fetchedDefinition) {
                 // We have found our target definition!
+
+                // Let's make a object token from the fetched definition:
+                token::object* fetchedObject = new token::object(
+                    token::info(
+                        token::type::OBJECT,
+                        rightSide->get_start(),
+                        currentUnit->parent,
+                        rightSide->data
+                    ),
+                    dynamic_cast<token::definition*>(fetchedDefinition)
+                );
                 
                 // Now we can construct the fetcher operator:
                 token::Operator::base* newFetcherOperator = new token::Operator::base(
@@ -439,7 +447,7 @@ namespace parser {
                     ),
                     token::Operator::type::FETCHER,
                     left,
-                    fetchedDefinition
+                    fetchedObject
                 );
 
                 // write parsed
@@ -589,7 +597,7 @@ namespace parser {
 
         token::definition* SymbolDefinition = dynamic_cast<token::definition*>(currentUnit->at<lexer::token::text>(startIndex)->parsed);
         
-        token::scope::Class::base* newClass = new token::scope::Class::base(token::info(SymbolDefinition));
+        token::scope::Class::base* newClass = new token::scope::Class::base(*SymbolDefinition);
         
         // Now that the class object pointer has been set, we can parse the parenthesis token
         unit::replaceDefinition(SymbolDefinition, newClass);
@@ -624,7 +632,7 @@ namespace parser {
 
         token::definition* SymbolDefinition = dynamic_cast<token::definition*>(currentUnit->at<lexer::token::text>(startIndex)->parsed);
         
-        token::function::base* newFunction = new token::function::base(token::info(SymbolDefinition));
+        token::function::base* newFunction = new token::function::base(*SymbolDefinition);
 
         unit::replaceDefinition(SymbolDefinition, newFunction);
 

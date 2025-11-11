@@ -19,6 +19,8 @@ namespace tester {
             add_test("Simple Parenthesis", "test parenthesis handling in expressions", test_simple_parenthesis);
             add_test("Chained Parenthesis", "test nested parenthesis handling", test_chained_parenthesis);
             add_test("class Definition", "test class definition parsing", test_class_construct);
+            add_test("Fetching", "test member fetching", test_fetching);
+            add_test("Function Return Type", "test function return type fetching", test_fetching_At_Function_Return_Type);
         }
 
     private:
@@ -378,6 +380,81 @@ namespace tester {
             auto c_Def = static_cast<parser::token::definition*>(classToken->data->definitions[1]);
             ASSERT_EQ((std::string_view)"c", c_Def->symbol);
             
+        }
+
+        static void test_fetching() {
+            auto lexerOutput = lexer::tokenize(
+            "class a {\n"
+            "  int b = 0\n"
+            "}\n"
+            "\n"
+            "a b\n"
+            "b.b = 1\n"
+            , 0);
+
+            parser::token::scope::base* globalScope = new parser::token::scope::base(
+                parser::token::info(
+                    parser::token::type::SCOPE,
+                    lexer::token::position(0, 0, 0),
+                    nullptr,
+                    "global"
+                ),
+                lexerOutput
+            );
+
+            parser::unit::base parse(parser::unit::pass::FIRST, globalScope);
+            parse.factory();
+
+            ASSERT_TRUE(globalScope->children.size() == 3);
+            ASSERT_TRUE(globalScope->children[0]->flags == parser::token::type::CLASS);
+            auto classToken = static_cast<parser::token::scope::Class::base*>(globalScope->children[0]);
+            ASSERT_EQ((std::string_view)"a", classToken->symbol);
+            ASSERT_TRUE(classToken->data->definitions.size() == 1);
+
+            ASSERT_TRUE(globalScope->children[1]->flags == parser::token::type::DEFINITION);
+            auto b_Def = static_cast<parser::token::definition*>(globalScope->children[1]);
+            ASSERT_EQ((std::string_view)"b", b_Def->symbol);
+            ASSERT_EQ((int)parser::token::type::DEFINITION, (int)b_Def->flags);
+
+            ASSERT_TRUE(globalScope->children[2]->flags == parser::token::type::OPERATOR);
+            auto fetchAssignOp = static_cast<parser::token::Operator::base*>(globalScope->children[2]);
+            ASSERT_EQ((std::string_view)"=", fetchAssignOp->symbol);
+            ASSERT_TRUE(fetchAssignOp->left->flags == parser::token::type::OPERATOR);
+            auto fetchOp = static_cast<parser::token::Operator::base*>(fetchAssignOp->left);
+            ASSERT_EQ((std::string_view)".", fetchOp->symbol);
+            ASSERT_TRUE(fetchOp->left->flags == parser::token::type::OBJECT);
+            ASSERT_EQ((std::string_view)"b", fetchOp->left->symbol);
+            ASSERT_TRUE(fetchOp->right->flags == parser::token::type::OBJECT);
+            ASSERT_EQ((std::string_view)"b", fetchOp->right->symbol);
+            ASSERT_TRUE(fetchAssignOp->right->flags == parser::token::type::NUMBER);
+            ASSERT_EQ((std::string_view)"1", fetchAssignOp->right->symbol);
+        }
+
+        void static test_fetching_At_Function_Return_Type() {
+            auto lexerOutput = lexer::tokenize(
+            "class a {\n"
+            "  int b = 0\n"
+            "}\n"
+            "\n"
+            "a.b foo(int c) {\n"
+            "  int d = c\n"
+            "}"
+            , 0);
+
+            parser::token::scope::base* globalScope = new parser::token::scope::base(
+                parser::token::info(
+                    parser::token::type::SCOPE,
+                    lexer::token::position(0, 0, 0),
+                    nullptr,
+                    "global"
+                ),
+                lexerOutput
+            );
+
+            parser::unit::base parse(parser::unit::pass::FIRST, globalScope);
+            parse.factory();
+
+            int a = 0;
         }
     };
 }
