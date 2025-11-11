@@ -51,7 +51,9 @@ namespace parser {
             }
         };
 
-        extern ::utils::range findSubsequentTokens(base* /*Current Translation Unit*/, lexer::token::types /*Token type*/, size_t /*Start Index*/);
+        extern ::utils::range findSubsequentTokens(base* /*Current Translation Unit*/, lexer::token::types /*Token type*/, int32_t /*Start Index*/);
+
+        extern ::utils::range findSubsequentTokens(base* /*Current Translation Unit*/, std::vector<std::pair<lexer::token::types, std::string_view>> /*Requirements*/, int32_t /*Start Index*/);
 
         extern void replaceDefinition(token::base* old, token::base* New);
     }
@@ -67,8 +69,6 @@ namespace parser {
             SCOPE,          // Any occurrence of a scope block (function, class, namespace, parenthesis, etc).
             CALLER,         // Function call operator.
             NUMBER,         // Any number in Real space
-            FUNCTION,
-            CLASS,
         };
         
         namespace scope {
@@ -86,11 +86,11 @@ namespace parser {
 
             virtual ~base() = default;  // For our fallen comrades 🥀🥀🥀 smh tsm
 
-            [[nodiscard]] virtual base* findClosestDefinition(std::string_view /* Symbol */) const;
+            [[nodiscard]] virtual base* findClosestDefinition(std::string_view /* Symbol */);
             
             // Each token class introduces their own factory, which takes lexer::tokens as input and colors the area it will require which will be deleted upon exit.
             // Also Parent has to be a scope
-            static void factory(unit::base* /*Current Translation Unit State*/, size_t /*Current Index*/) {}
+            static void factory(unit::base* /*Current Translation Unit State*/, int32_t /*Current Index*/) {}
 
             virtual std::string toString() { 
                 return std::string(symbol) + ": (" + std::to_string(position.x) + ", " + std::to_string(position.y) + ")";
@@ -104,25 +104,34 @@ namespace parser {
             info(parser::token::base* other) : parser::token::base(*other) {}
         };
 
-        class definition : public token::base {
-        public:
-            std::vector<std::string_view> inherited;
+        namespace definition {
+            enum class types {
+                VARIABLE,
+                CONTEXT
+            };
 
-            // Auto-adds itself to the current parent
-            definition(info Info, std::vector<std::string_view> toInherit);
-            
-            static void factory(unit::base* /*Current Translation Unit State*/, size_t& /*Current Index*/);
-        };
+            class base : public token::base {
+            public:
+                std::vector<std::string_view> inherited;
+                types definitionType;
+    
+                // Auto-adds itself to the current parent
+                base(info Info, std::vector<std::string_view> toInherit, types defType = types::VARIABLE);
+                
+                static void factory(unit::base* /*Current Translation Unit State*/, int32_t& /*Current Index*/);
+            };
+
+        }
         
         class object : public token::base {
         public:
             std::string_view name;
             
-            definition* reference;
+            definition::base* reference;
 
-            object(info Info, definition* ref) : token::base(Info), name(ref->symbol), reference(ref) {}
+            object(info Info, definition::base* ref) : token::base(Info), name(ref->symbol), reference(ref) {}
             
-            static void factory(unit::base* /*Current Translation Unit State*/, size_t& /*Current Index*/);
+            static void factory(unit::base* /*Current Translation Unit State*/, int32_t& /*Current Index*/);
         };
 
         class number : public token::base, public lexer::token::number {
@@ -138,7 +147,7 @@ namespace parser {
                 return "[PARSER NUMBER: \"" + text + "\" " + parser::token::base::toString() + "]";
             }
 
-            static void factory(unit::base* /*Current Translation Unit State*/, size_t& /*Current Index*/);
+            static void factory(unit::base* /*Current Translation Unit State*/, int32_t& /*Current Index*/);
         private:
             void determineSize();
         };
@@ -154,7 +163,7 @@ namespace parser {
 
                 base(info Info, unit::lexerOutput RawTokens) : token::base(Info), rawTokens(RawTokens) {}
 
-                [[nodiscard]] token::base* findClosestDefinition(std::string_view Symbol) const override {
+                [[nodiscard]] token::base* findClosestDefinition(std::string_view Symbol) override {
                     // Search in current scope first
                     for (auto it = definitions.rbegin(); it != definitions.rend(); ++it) {
                         if ((*it)->symbol == Symbol) {
@@ -168,39 +177,30 @@ namespace parser {
             };
 
             namespace parenthesis {
-                extern void factory(unit::base* /*Current Translation Unit State*/, size_t& /*Start Index*/);
-            }
-
-            namespace Class {
-                // Uses scope::base::definition as the defined
-                // Uses scope::base::children as the default constructor code
-                extern void factory(unit::base* /*Current Translation Unit State*/, size_t& /*Start Index*/);
-
-                class base : public token::definition {
-                public:
-                    scope::base* data = nullptr;
-
-                    base(token::definition Info, scope::base* Data = nullptr) : token::definition(Info), data(Data) {
-                        flags = token::type::CLASS;
-                    }
-                };
+                extern void factory(unit::base* /*Current Translation Unit State*/, int32_t& /*Start Index*/);
             }
         }
-        
-        namespace function {
-            // A function is just a helper container for chained parenthesis's
-            class base : public token::definition {
-            public:
-                scope::base* parameters = nullptr;
-                scope::base* body = nullptr;
 
-                base(token::definition Info, scope::base* Params = nullptr, scope::base* Body = nullptr) : token::definition(Info), parameters(Params), body(Body) {
-                    flags = token::type::FUNCTION;
-                }
-            };
+        // Represents callers, functions, classes, namespaces and more?
+        class context : public token::definition::base {
+        public:
+            std::vector<scope::base*> wrappers; // <>[](){}
 
-            extern void factory(unit::base* /*Current Translation Unit State*/, size_t& /*Start Index*/);
-        }
+            context(token::definition::base Info, std::vector<scope::base*> Contexts = {}) : token::definition::base(Info), wrappers(Contexts) {
+                definitionType = token::definition::types::CONTEXT;
+            }
+
+            [[nodiscard]] token::base* findClosestDefinition(std::string_view Symbol) override {
+                // Check self
+                token::base* result = symbol == Symbol ? this : nullptr;
+
+                for (int32_t i = 0; i < (int32_t)wrappers.size() && !result; i++) result = wrappers[i]->findClosestDefinition(Symbol);
+
+                return result;
+            }
+            
+            static void factory(unit::base* /*Current Translation Unit State*/, int32_t& /*Start Index*/);   
+        };
 
         namespace Operator {
 
@@ -238,11 +238,11 @@ namespace parser {
 
                 static void factory(unit::base* /*Current Translation Unit State*/);
             
-                static void combinator(unit::base* /*Current Translation Unit State*/, size_t& /*Current Index*/, type /*Focused Type*/);
+                static void combinator(unit::base* /*Current Translation Unit State*/, int32_t& /*Current Index*/, type /*Focused Type*/);
             };
 
             namespace fetcher {
-                extern void combinator(unit::base* /*Current Translation Unit State*/, size_t& /*Current Index*/);
+                extern void factory(unit::base* /*Current Translation Unit State*/, int32_t& /*Current Index*/);
             }
 
             namespace fix {
@@ -263,7 +263,7 @@ namespace parser {
                     
                     base(info Info, token::base* Operand, fix::type postOrPre) : token::base(Info), fixity(postOrPre), operand(Operand) {}
 
-                    static void combinator(unit::base* /*Current Translation Unit State*/, size_t& /*Current Index*/);
+                    static void combinator(unit::base* /*Current Translation Unit State*/, int32_t& /*Current Index*/);
                 };
 
             }

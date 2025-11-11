@@ -61,6 +61,8 @@ namespace lexer{
             virtual std::string toString() {
                 return "POSITION: (" + std::to_string(start.x) + ", " + std::to_string(start.y) + ")";
             }
+
+            virtual std::string getData() { return ""; }
         };
 
         class text : public base{
@@ -76,6 +78,8 @@ namespace lexer{
             std::string toString() override {
                 return "[TEXT: \"" + data + "\" " + base::toString() + "]";
             }
+
+            std::string getData() override { return data; }
         };
 
         class op : public base{
@@ -91,6 +95,8 @@ namespace lexer{
             std::string toString() override {
                 return "[OPERATOR: \"" + text + "\" " + base::toString() + "]";
             }
+
+            std::string getData() override { return text; }
         };
 
         class number : public base{
@@ -116,6 +122,8 @@ namespace lexer{
             std::string toString() override {
                 return "[NUMBER: \"" + text + "\" " + base::toString() + "]";
             }
+
+            std::string getData() override { return text; }
         };
 
         class separator : public base{
@@ -139,6 +147,15 @@ namespace lexer{
 
             std::string toString() override {
                 return "[SEPARATOR: \"" + std::to_string(static_cast<int>(type)) + "\" " + base::toString() + "]";
+            }
+
+            std::string getData() override {
+                switch (type) {
+                    case types::COMMA: return ",";
+                    case types::SPACE: return " ";
+                    case types::NEWLINE: return "\n";
+                    default: return "";
+                }
             }
         };
 
@@ -194,6 +211,8 @@ namespace lexer{
                 result += "}]";
                 return result;
             }
+
+            std::string getData() override { return std::string(1, identity); }
         };
 
         class control : public base{
@@ -230,6 +249,14 @@ namespace lexer{
             
             std::string toString() override {
                 return "[CONTROL: \"" + std::to_string(static_cast<int>(type)) + "\" " + base::toString() + "]";
+            }
+
+            std::string getData() override {
+                switch (type) {
+                    case types::START_OF_FILE: return "\2";
+                    case types::END_OF_FILE: return "\3";
+                    default: return "";
+                }
             }
         };
 

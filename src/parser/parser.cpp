@@ -14,16 +14,16 @@ namespace parser {
             
             // Consider here looping through subsets first and then range in them, to boost performance 999+
             // NOTE: if you decide to use subset traversal then you cannot remove mid loop exhausted tokens, so use reverse traversal!
-            for (size_t index = 0; index < tokens.size(); ++index) {
+            for (int32_t index = 0; index < (int32_t)tokens.size(); ++index) {
 
                 // FACTORIES:
                 // -_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
-                token::definition::factory(this, index);
-                token::function::factory(this, index);
-                token::scope::Class::factory(this, index);
+                token::definition::base::factory(this, index);
+                token::context::factory(this, index);
                 token::number::factory(this, index);
                 token::object::factory(this, index);
                 token::scope::parenthesis::factory(this, index);
+                token::Operator::fetcher::factory(this, index);
                 // -_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
                 
             }
@@ -41,12 +41,35 @@ namespace parser {
         }
     }
 
-    utils::range unit::findSubsequentTokens(base* Unit, lexer::token::types type, size_t startIndex) {
+    utils::range unit::findSubsequentTokens(base* Unit, lexer::token::types type, int32_t startIndex) {
         utils::range result;
         for (
             result = {startIndex, startIndex}; 
-            (size_t)result.max < Unit->tokens.size() &&                  // Check that we are still within the bounds
+            result.max < (int32_t)Unit->tokens.size() &&                  // Check that we are still within the bounds
             Unit->tokens[result.max]->get_type() == type;        // Check that the current token is of the requested type
+            result.max++
+        );
+
+        return result;
+    }
+
+    ::utils::range unit::findSubsequentTokens(base* Unit, std::vector<std::pair<lexer::token::types, std::string_view>> Requirements, int32_t startIndex) {
+        utils::range result;
+
+        // Checks if the lexer token fills any of the requirements
+        auto fits = [&Requirements](lexer::token::base* t){
+            for (const auto& req : Requirements) {
+                if (t->get_type() == req.first && (req.second.empty() ? true : t->getData() == req.second)) {
+                    return true;
+                }
+            }
+            return false;
+        };
+
+        for (
+            result = {startIndex, startIndex}; 
+            result.max < (int32_t)Unit->tokens.size() &&                  // Check that we are still within the bounds
+            fits(Unit->tokens[result.max]);        // Check that the current token fits any of the requirements
             result.max++
         );
 
@@ -64,24 +87,38 @@ namespace parser {
         }
     }
 
-    token::base* token::base::findClosestDefinition(std::string_view Symbol) const {
+    token::base* token::base::findClosestDefinition(std::string_view Symbol) {
         // Default behaviour is to pipe this call to the parent hoping it might hit the scope class.
         return parent ? parent->findClosestDefinition(Symbol) : nullptr;
     }
 
-    token::definition::definition(info Info, std::vector<std::string_view> toInherit) : token::base(Info), inherited(toInherit) {
+    token::definition::base::base(info Info, std::vector<std::string_view> toInherit, types defType) : token::base(Info), inherited(toInherit), definitionType(defType) {
         if (parent) {
             parent->definitions.push_back(this);
         }
     }
 
-    void token::definition::factory(unit::base* currentUnit, size_t& startIndex) {
+    void token::definition::base::factory(unit::base* currentUnit, int32_t& startIndex) {
         if (currentUnit->passIndex != unit::pass::FIRST) return;    // Definitions are only created in the first pass.
         if (currentUnit->tokens.size() < 2) return;                 // Need at least two tokens to form a definition. one for type and one for name
 
-        utils::range textTokens = findSubsequentTokens(currentUnit, lexer::token::types::TEXT, startIndex);
+        utils::range textTokens = findSubsequentTokens(
+            currentUnit, 
+            {
+                {lexer::token::types::TEXT, ""},
+                {lexer::token::types::OPERATOR, "."}    // For fetcher inheritances
+            },
+            startIndex
+        );
 
         if (textTokens.length() < 2) return; // Need at least two text tokens to form a definition.
+
+        // Check that if fetcher operators are present they are atleast processed.
+        for (int32_t i = textTokens.min; i < textTokens.max; i++) {
+            if (currentUnit->tokens[i]->get_type() == lexer::token::types::OPERATOR && currentUnit->tokens[i]->parsed == nullptr) {
+                return;
+            }
+        }
 
         lexer::token::text* name = currentUnit->at<lexer::token::text>(textTokens.max - 1);
 
@@ -93,13 +130,22 @@ namespace parser {
         // Let's now also fetch the symbols of each inherited text token.
         std::vector<std::string_view> inherited;
         for (int32_t i = textTokens.min; i < textTokens.max - 1; ++i) {
-            std::string_view symbol = currentUnit->at<lexer::token::text>(i)->data;
 
-            inherited.push_back(symbol);
+            if (currentUnit->tokens[i]->get_type() == lexer::token::types::OPERATOR) {
+                token::object* rightOperand = dynamic_cast<token::object*>(dynamic_cast<token::Operator::base*>(currentUnit->at<lexer::token::base>(i)->parsed)->right);
+
+                for (auto operandInherit : rightOperand->reference->inherited) {
+                    inherited.push_back(operandInherit);
+                }
+            }
+            else {
+                std::string_view symbol = currentUnit->at<lexer::token::text>(i)->data;
+                inherited.push_back(symbol);
+            }
         }
 
         // Definition class automatically handles everything it needs to, keep this accessor in case we need to do some higher level abstract thingies.
-        [[maybe_unused]] token::definition::base* newDefinition = new token::definition(
+        [[maybe_unused]] token::definition::base* newDefinition = new token::definition::base(
             token::info(
                 token::type::DEFINITION,
                 name->get_start(),
@@ -118,8 +164,8 @@ namespace parser {
         startIndex = textTokens.min;
     }
 
-    void token::object::factory(unit::base* currentUnit, size_t& startIndex) {
-        if (currentUnit->passIndex != unit::pass::SECOND) return;    // Definitions are only created in the first pass, so objects on second pass, this way we can use references before their declaration, good for headers :).
+    void token::object::factory(unit::base* currentUnit, int32_t& startIndex) {
+        if (currentUnit->passIndex != unit::pass::FIRST) return;    // Dependant of definition pattern, but can happen on same pass.
     
         lexer::token::text* currentText = currentUnit->at<lexer::token::text>(startIndex);
 
@@ -139,14 +185,14 @@ namespace parser {
                 currentUnit->parent,
                 currentText->data
             ),
-            static_cast<token::definition*>(reference)
+            static_cast<token::definition::base*>(reference)
         );
 
         // now we override the definition factory made parsed reference with the actual object parsed value.
         currentText->parsed = newObject;
     }
 
-    void token::number::factory(unit::base* currentUnit, size_t& startIndex) {
+    void token::number::factory(unit::base* currentUnit, int32_t& startIndex) {
         if (currentUnit->passIndex != unit::pass::FIRST) return;    // numbers can be handled as soon as possible since they do not require complex AST to be determined
 
         if (auto currentNumber = currentUnit->at<lexer::token::number>(startIndex)) {
@@ -275,64 +321,59 @@ namespace parser {
         // a = <l && r>
         // <a = r>
 
-        // '.'
-        for (size_t i = 0; i < currentUnit->tokens.size(); i++) {
-            token::Operator::fetcher::combinator(currentUnit, i);
-        }
-
         // '++' '--'
-        for (size_t i = 0; i < currentUnit->tokens.size(); i++) {
+        for (int32_t i = 0; i < (int32_t)currentUnit->tokens.size(); i++) {
             token::Operator::fix::base::combinator(currentUnit, i);
         }
 
         // '*' '/' '%'
-        for (size_t i = 0; i < currentUnit->tokens.size(); i++) {
+        for (int32_t i = 0; i < (int32_t)currentUnit->tokens.size(); i++) {
             token::Operator::base::combinator(currentUnit, i, token::Operator::type::MULTIPLICATION);
             token::Operator::base::combinator(currentUnit, i, token::Operator::type::DIVISION);
             token::Operator::base::combinator(currentUnit, i, token::Operator::type::MODULO);
         }
 
         // '+' '-'
-        for (size_t i = 0; i < currentUnit->tokens.size(); i++) {
+        for (int32_t i = 0; i < (int32_t)currentUnit->tokens.size(); i++) {
             token::Operator::base::combinator(currentUnit, i, token::Operator::type::ADDITION);
             token::Operator::base::combinator(currentUnit, i, token::Operator::type::SUBTRACTION);
         }
 
         // '<<' '>>'
-        for (size_t i = 0; i < currentUnit->tokens.size(); i++) {
+        for (int32_t i = 0; i < (int32_t)currentUnit->tokens.size(); i++) {
             token::Operator::base::combinator(currentUnit, i, token::Operator::type::BITSHIFT_LEFT);
             token::Operator::base::combinator(currentUnit, i, token::Operator::type::BITSHIFT_RIGHT);
         }
 
         // Comparisons: '<' '>' '<=' '>=' '==' '!='
-        for (size_t i = 0; i < currentUnit->tokens.size(); i++) {
+        for (int32_t i = 0; i < (int32_t)currentUnit->tokens.size(); i++) {
             token::Operator::base::combinator(currentUnit, i, token::Operator::type::COMPARISON);
         }
 
         // '&' '¤' '|'
-        for (size_t i = 0; i < currentUnit->tokens.size(); i++) {
+        for (int32_t i = 0; i < (int32_t)currentUnit->tokens.size(); i++) {
             token::Operator::base::combinator(currentUnit, i, token::Operator::type::AND);
             token::Operator::base::combinator(currentUnit, i, token::Operator::type::XOR);
             token::Operator::base::combinator(currentUnit, i, token::Operator::type::OR);
         }
 
         // '&&'
-        for (size_t i = 0; i < currentUnit->tokens.size(); i++) {
+        for (int32_t i = 0; i < (int32_t)currentUnit->tokens.size(); i++) {
             token::Operator::base::combinator(currentUnit, i, token::Operator::type::LOGICAL_AND);
         }
 
         // '||'
-        for (size_t i = 0; i < currentUnit->tokens.size(); i++) {
+        for (int32_t i = 0; i < (int32_t)currentUnit->tokens.size(); i++) {
             token::Operator::base::combinator(currentUnit, i, token::Operator::type::LOGICAL_OR);
         }
 
         // Assignments
-        for (size_t i = 0; i < currentUnit->tokens.size(); i++) {
+        for (int32_t i = 0; i < (int32_t)currentUnit->tokens.size(); i++) {
             token::Operator::base::combinator(currentUnit, i, token::Operator::type::ASSIGN);
         }
     }
 
-    void token::Operator::base::combinator(unit::base* currentUnit, size_t& i, token::Operator::type t) {
+    void token::Operator::base::combinator(unit::base* currentUnit, int32_t& i, token::Operator::type t) {
         // Checks if the current token is a operator token type, if so it needs to be accommodated.
         if (currentUnit->at<lexer::token::base>(i)->get_type() != lexer::token::types::OPERATOR) return;
 
@@ -373,19 +414,22 @@ namespace parser {
         i--;
     }
 
-    void token::Operator::fetcher::combinator(unit::base* currentUnit, size_t& i) {
+    void token::Operator::fetcher::factory(unit::base* currentUnit, int32_t& i) {
+        if (currentUnit->passIndex != unit::pass::FIRST) return;
+
         // Checks if the current token is a operator token type, if so it needs to be accommodated.
         if (currentUnit->at<lexer::token::base>(i)->get_type() != lexer::token::types::OPERATOR) return;
         if (toType(currentUnit->at<lexer::token::op>(i)->text) != token::Operator::type::FETCHER) return;
 
         lexer::token::op* currentOperator = currentUnit->at<lexer::token::op>(i);
+        if (currentOperator->parsed) return;
 
         token::base* left = currentUnit->at<lexer::token::base>(i - 1)->parsed;
 
         // Since each fetcher will always at conception cache where the right side is from, we dont need full recursion here
         if (!left) throw std::runtime_error("Use of undefined scope: " +  currentUnit->at<lexer::token::base>(i - 1)->toString());
 
-        token::definition* closestFetcherDefinition;
+        token::definition::base* closestFetcherDefinition;
 
         if (left->flags == token::type::OPERATOR) {     // a.b.c -> <a.b>.c
             // Now we can take from left->right->baked_definition->search(right->symbol)
@@ -396,7 +440,7 @@ namespace parser {
             if (!fetcherObject) throw std::runtime_error("Left operand in fetcher is not an object type: " + leftOperator->right->toString());
 
             // Now we have an identified object which should contain its definition, where we can then find the right side definition from.
-            token::definition* bakedDefinition = fetcherObject->reference;
+            token::definition::base* bakedDefinition = fetcherObject->reference;
             if (!bakedDefinition) throw std::runtime_error("Object '" + fetcherObject->toString() + "' has no associated definition.");
 
             closestFetcherDefinition = bakedDefinition;
@@ -405,7 +449,7 @@ namespace parser {
             token::object* leftObject = dynamic_cast<token::object*>(left);
             if (!leftObject) throw std::runtime_error("Internal parser error: failed to cast left operand to object type in fetcher combinator.");
 
-            token::definition* bakedDefinition = leftObject->reference;
+            token::definition::base* bakedDefinition = leftObject->reference;
             if (!bakedDefinition) throw std::runtime_error("Object '" + leftObject->toString() + "' has no associated definition.");
 
             closestFetcherDefinition = bakedDefinition;
@@ -417,10 +461,18 @@ namespace parser {
         lexer::token::text* rightSide = currentUnit->at<lexer::token::text>(i + 1);
         if (!rightSide) throw std::runtime_error("Right operand in fetcher is not a valid text token: " + currentUnit->at<lexer::token::base>(i + 1)->toString());
 
-        // Now that we have the definition of our closest fetcher from the chain, we can swift through its inheritances[i]->(casted to scope)->definitions and see if any of them contain right->symbol
+        std::vector<token::base*> inherited = {closestFetcherDefinition};
+
+        // fill inherited
         for (const auto& inheritedSymbol : closestFetcherDefinition->inherited) {
             token::base* foundScope = closestFetcherDefinition->parent->findClosestDefinition(inheritedSymbol);
-            if (!foundScope) continue;
+            if (foundScope) {
+                inherited.push_back(foundScope);
+            }
+        }
+
+        // Now that we have the definition of our closest fetcher from the chain, we can swift through its inheritances[i]->(casted to scope)->definitions and see if any of them contain right->symbol
+        for (const auto& foundScope : inherited) {
 
             token::base* fetchedDefinition = foundScope->findClosestDefinition(rightSide->data);
             if (fetchedDefinition) {
@@ -434,7 +486,7 @@ namespace parser {
                         currentUnit->parent,
                         rightSide->data
                     ),
-                    dynamic_cast<token::definition*>(fetchedDefinition)
+                    dynamic_cast<token::definition::base*>(fetchedDefinition)
                 );
                 
                 // Now we can construct the fetcher operator:
@@ -458,14 +510,14 @@ namespace parser {
                 currentUnit->tokens.erase(currentUnit->tokens.begin() + i - 1);
 
                 // Update index
-                i--;
+                i -= 2; // Go back two times since it should be the last iterable factory, so that next factories re-read what this produced, mainly for definition factory.
 
                 return;
             }
         }
     }
 
-    void token::Operator::fix::base::combinator(unit::base* currentUnit, size_t& i) {
+    void token::Operator::fix::base::combinator(unit::base* currentUnit, int32_t& i) {
         // Checks if the current token is a operator token type, if so it needs to be accommodated.
         if (currentUnit->at<lexer::token::base>(i)->get_type() != lexer::token::types::OPERATOR) return;
 
@@ -493,7 +545,7 @@ namespace parser {
         }
 
         // Check for prefix: operand is at i+1
-        if (!operand && i + 1 < currentUnit->tokens.size()) {
+        if (!operand && i + 1 < (int32_t)currentUnit->tokens.size()) {
             operand = currentUnit->at<lexer::token::base>(i + 1)->parsed;
             if (operand) {
                 fixity = fix::type::PRE;
@@ -530,7 +582,7 @@ namespace parser {
         }
     }
 
-    void token::scope::parenthesis::factory(unit::base* currentUnit, size_t& startIndex) {
+    void token::scope::parenthesis::factory(unit::base* currentUnit, int32_t& startIndex) {
         if (currentUnit->passIndex != unit::pass::FIRST) return;    // Parenthesis's aren't really dependant of anything else, so they can be one of the first to be parsed.
 
         if (currentUnit->at<lexer::token::base>(startIndex)->get_type() != lexer::token::types::WRAPPER) return;
@@ -581,76 +633,42 @@ namespace parser {
         currentWrapper->parsed = newScope;
     }
 
-    void token::scope::Class::factory(unit::base* currentUnit, size_t& startIndex) {
-        if (currentUnit->passIndex != unit::pass::FIRST) return;
-
-        if (startIndex + 1 >= currentUnit->tokens.size()) return; // Not enough tokens to form a class
-        if (currentUnit->at<lexer::token::base>(startIndex)->get_type() != lexer::token::types::TEXT) return;
-        if (currentUnit->at<lexer::token::base>(startIndex + 1)->get_type() != lexer::token::types::WRAPPER || currentUnit->at<lexer::token::wrapper>(startIndex + 1)->type != lexer::token::wrapper::types::CURLY_BRACKETS) return;
-        if (startIndex + 2 < currentUnit->tokens.size() && currentUnit->at<lexer::token::base>(startIndex + 2)->get_type() == lexer::token::types::WRAPPER) return;    // Skip function patterns
-
-        // Check all used tokens are parsed
-        if (
-            !currentUnit->at<lexer::token::text>(startIndex)->parsed ||     // Symbol token needs to be parsed
-            currentUnit->at<lexer::token::wrapper>(startIndex + 1)->parsed         // Skip is the parenthesis is already parsed, since it needs to be parsed via this function.
-        ) return;
-
-        token::definition* SymbolDefinition = dynamic_cast<token::definition*>(currentUnit->at<lexer::token::text>(startIndex)->parsed);
-        
-        token::scope::Class::base* newClass = new token::scope::Class::base(*SymbolDefinition);
-        
-        // Now that the class object pointer has been set, we can parse the parenthesis token
-        unit::replaceDefinition(SymbolDefinition, newClass);
-        
-        token::scope::parenthesis::factory(currentUnit, ++startIndex);
-        token::scope::base* Body = dynamic_cast<token::scope::base*>(currentUnit->at<lexer::token::wrapper>(startIndex)->parsed);
-        startIndex--;   // go back.
-        
-        newClass->data = Body;
-
-        currentUnit->at<lexer::token::text>(startIndex)->parsed = newClass;
-
-        // remove i+1
-        currentUnit->tokens.erase(currentUnit->tokens.begin() + startIndex + 1);
-    }
-
-    void token::function::factory(unit::base* currentUnit, size_t& startIndex) {
-        if (currentUnit->passIndex != unit::pass::FIRST) return;    // Functions need definitions to be parsed first.
+    void token::context::factory(unit::base* currentUnit, int32_t& startIndex) {
+        if (currentUnit->passIndex != unit::pass::FIRST) return;    // Contexts need definitions to be parsed first.
 
         // <object> <parenthesis (round)> <parenthesis (curly)>
-        if (startIndex + 2 >= currentUnit->tokens.size()) return; // Not enough tokens to form a function
+        if (startIndex + 2 >= (int32_t)currentUnit->tokens.size()) return; // Not enough tokens to form a function
         if (currentUnit->at<lexer::token::base>(startIndex)->get_type() != lexer::token::types::TEXT) return;
-        if (currentUnit->at<lexer::token::base>(startIndex + 1)->get_type() != lexer::token::types::WRAPPER || currentUnit->at<lexer::token::wrapper>(startIndex + 1)->type != lexer::token::wrapper::types::ROUND_BRACKETS) return;
-        if (currentUnit->at<lexer::token::base>(startIndex + 2)->get_type() != lexer::token::types::WRAPPER || currentUnit->at<lexer::token::wrapper>(startIndex + 2)->type != lexer::token::wrapper::types::CURLY_BRACKETS) return;
+        if (!currentUnit->at<lexer::token::text>(startIndex)->parsed) return;   // Require the symbol to be parsed
 
-        // check that all of them are parsed
-        if (
-            !currentUnit->at<lexer::token::text>(startIndex)->parsed ||             // Require the symbol token to be parsed
-            currentUnit->at<lexer::token::wrapper>(startIndex + 1)->parsed ||       // Skip if the parenthesis is already parsed, since it needs to be parsed via this function.
-            currentUnit->at<lexer::token::wrapper>(startIndex + 2)->parsed          // Skip if the body is already parsed, since it needs to be parsed via this function.
-        ) return;
+        utils::range wrapperRange = unit::findSubsequentTokens(
+            currentUnit,
+            lexer::token::types::WRAPPER,
+            startIndex + 1
+        );
 
-        token::definition* SymbolDefinition = dynamic_cast<token::definition*>(currentUnit->at<lexer::token::text>(startIndex)->parsed);
+        if (wrapperRange.length() < 1) return; // Need at least one wrapper to create an context
+
+        // Check that none of the wrappers have been parsed yet
+        for (int32_t wi = wrapperRange.min; wi < wrapperRange.max; ++wi) {
+            if (currentUnit->at<lexer::token::wrapper>(wi)->parsed) return; // One of the wrappers is already parsed, cannot form context here.
+        }
+
+        token::definition::base* SymbolDefinition = dynamic_cast<token::definition::base*>(currentUnit->at<lexer::token::text>(startIndex)->parsed);
         
-        token::function::base* newFunction = new token::function::base(*SymbolDefinition);
+        token::context* newContext = new token::context(*SymbolDefinition);
 
-        unit::replaceDefinition(SymbolDefinition, newFunction);
+        unit::replaceDefinition(SymbolDefinition, newContext);
 
-        // Now that the function object pointer has been set, we can parse the parenthesis token
-        token::scope::parenthesis::factory(currentUnit, ++startIndex);
-        token::scope::base* Parameters = dynamic_cast<token::scope::base*>(currentUnit->at<lexer::token::wrapper>(startIndex)->parsed);
-        newFunction->parameters = Parameters;
-        // Now parse the body
-        token::scope::parenthesis::factory(currentUnit, ++startIndex);
-        token::scope::base* Body = dynamic_cast<token::scope::base*>(currentUnit->at<lexer::token::wrapper>(startIndex)->parsed);
-        newFunction->body = Body;
-        
-        startIndex -= 2;   // go back.
+        // Now that the context object pointer has been set, we can parse the wrapper tokens
+        for (int32_t wi = wrapperRange.min; wi < wrapperRange.max; ++wi) {
+            token::scope::parenthesis::factory(currentUnit, wi);
+            newContext->wrappers.push_back(dynamic_cast<token::scope::base*>(currentUnit->at<lexer::token::wrapper>(wi)->parsed));
+        }
 
-        currentUnit->at<lexer::token::text>(startIndex)->parsed = newFunction;
+        currentUnit->at<lexer::token::text>(startIndex)->parsed = newContext;
 
-        // remove i+1 and i+2
-        currentUnit->tokens.erase(currentUnit->tokens.begin() + startIndex + 2);
-        currentUnit->tokens.erase(currentUnit->tokens.begin() + startIndex + 1);
+        // remove i+wrappers.size()
+        currentUnit->tokens.erase(currentUnit->tokens.begin() + wrapperRange.min, currentUnit->tokens.begin() + wrapperRange.max);
     }
 }
