@@ -19,9 +19,10 @@ namespace parser {
                 // FACTORIES:
                 // -_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
                 token::definition::base::factory(this, index);
-                token::context::factory(this, index);
+                token::context::factory(this, index);   // Right after definition pattern
                 token::number::factory(this, index);
                 token::object::factory(this, index);
+                token::caller::factory(this, index);    // Right after object pattern
                 token::scope::parenthesis::factory(this, index);
                 token::Operator::fetcher::factory(this, index);
                 // -_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
@@ -636,8 +637,10 @@ namespace parser {
     void token::context::factory(unit::base* currentUnit, int32_t& startIndex) {
         if (currentUnit->passIndex != unit::pass::FIRST) return;    // Contexts need definitions to be parsed first.
 
-        // <object> <parenthesis (round)> <parenthesis (curly)>
-        if (startIndex + 2 >= (int32_t)currentUnit->tokens.size()) return; // Not enough tokens to form a function
+        constexpr int minimumRequiredWrapperCountForContexts = 1;
+
+        // <definition> <parenthesis (any)>...*n
+        if (startIndex + minimumRequiredWrapperCountForContexts >= (int32_t)currentUnit->tokens.size()) return; // Not enough tokens to form a function
         if (currentUnit->at<lexer::token::base>(startIndex)->get_type() != lexer::token::types::TEXT) return;
         if (!currentUnit->at<lexer::token::text>(startIndex)->parsed) return;   // Require the symbol to be parsed
 
@@ -647,7 +650,7 @@ namespace parser {
             startIndex + 1
         );
 
-        if (wrapperRange.length() < 1) return; // Need at least one wrapper to create an context
+        if (wrapperRange.length() < minimumRequiredWrapperCountForContexts) return; // Need at least one wrapper to create an context
 
         // Check that none of the wrappers have been parsed yet
         for (int32_t wi = wrapperRange.min; wi < wrapperRange.max; ++wi) {
@@ -655,6 +658,8 @@ namespace parser {
         }
 
         token::definition::base* SymbolDefinition = dynamic_cast<token::definition::base*>(currentUnit->at<lexer::token::text>(startIndex)->parsed);
+
+        if (!SymbolDefinition) return;  // Probably a caller pattern.
         
         token::context* newContext = new token::context(*SymbolDefinition);
 
@@ -667,6 +672,47 @@ namespace parser {
         }
 
         currentUnit->at<lexer::token::text>(startIndex)->parsed = newContext;
+
+        // remove i+wrappers.size()
+        currentUnit->tokens.erase(currentUnit->tokens.begin() + wrapperRange.min, currentUnit->tokens.begin() + wrapperRange.max);
+    }
+
+    void token::caller::factory(unit::base* currentUnit, int32_t& startIndex) {
+        if (currentUnit->passIndex != unit::pass::FIRST) return;    // Contexts need definitions to be parsed first.
+
+        constexpr int minimumRequiredWrapperCountForCallers = 1;
+
+        // <object> <parenthesis (any)>...*n
+        if (startIndex + minimumRequiredWrapperCountForCallers >= (int32_t)currentUnit->tokens.size()) return; // Not enough tokens to form a function
+        if (currentUnit->at<lexer::token::base>(startIndex)->get_type() != lexer::token::types::TEXT) return;
+        if (!currentUnit->at<lexer::token::text>(startIndex)->parsed) return;   // Require the symbol to be parsed
+
+        utils::range wrapperRange = unit::findSubsequentTokens(
+            currentUnit,
+            lexer::token::types::WRAPPER,
+            startIndex + 1
+        );
+
+        if (wrapperRange.length() < minimumRequiredWrapperCountForCallers) return; // Need at least one wrapper to create an context
+
+        // Check that none of the wrappers have been parsed yet
+        for (int32_t wi = wrapperRange.min; wi < wrapperRange.max; ++wi) {
+            if (currentUnit->at<lexer::token::wrapper>(wi)->parsed) return; // One of the wrappers is already parsed, cannot form context here.
+        }
+
+        token::object* Symbolobject = dynamic_cast<token::object*>(currentUnit->at<lexer::token::text>(startIndex)->parsed);
+
+        if (!Symbolobject) return;  // Probably a context pattern.
+        
+        token::caller* newCaller = new token::caller(info(dynamic_cast<token::base*>(Symbolobject)), Symbolobject->reference);
+
+        // Now that the context object pointer has been set, we can parse the wrapper tokens
+        for (int32_t wi = wrapperRange.min; wi < wrapperRange.max; ++wi) {
+            token::scope::parenthesis::factory(currentUnit, wi);
+            newCaller->parameters.push_back(dynamic_cast<token::scope::base*>(currentUnit->at<lexer::token::wrapper>(wi)->parsed));
+        }
+
+        currentUnit->at<lexer::token::text>(startIndex)->parsed = newCaller;
 
         // remove i+wrappers.size()
         currentUnit->tokens.erase(currentUnit->tokens.begin() + wrapperRange.min, currentUnit->tokens.begin() + wrapperRange.max);

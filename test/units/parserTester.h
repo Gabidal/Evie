@@ -21,6 +21,7 @@ namespace tester {
             add_test("class Definition", "test class definition parsing", test_single_wrapper_context);
             add_test("Fetching", "test member fetching", test_fetching);
             add_test("Function Return Type", "test function return type fetching", test_fetching_At_Context_Return_Type);
+            add_test("Caller Construction", "test caller construction", test_caller_construction);
         }
 
     private:
@@ -516,6 +517,51 @@ namespace tester {
             ASSERT_TRUE(body->definitions[0]->flags == parser::token::type::DEFINITION);
             auto d_Def = static_cast<parser::token::definition::base*>(body->definitions[0]);
             ASSERT_EQ((std::string_view)"d", d_Def->symbol);
+        }
+
+        static void test_caller_construction() {
+            auto lexerOutput = lexer::tokenize(
+            "void foo(int c) {\n"
+            "  int d = c\n"
+            "}\n"
+            "int a = foo(1)\n"
+            , 0);
+
+            parser::token::scope::base* globalScope = new parser::token::scope::base(
+                parser::token::info(
+                    parser::token::type::SCOPE,
+                    lexer::token::position(0, 0, 0),
+                    nullptr,
+                    "global"
+                ),
+                lexerOutput
+            );
+
+            parser::unit::base parse(parser::unit::pass::FIRST, globalScope);
+            parse.factory();
+
+            ASSERT_TRUE(globalScope->children.size() == 2);
+            ASSERT_TRUE(globalScope->children[0]->flags == parser::token::type::DEFINITION);
+            auto funcContext = static_cast<parser::token::context*>(globalScope->children[0]);
+            ASSERT_TRUE(funcContext->definitionType == parser::token::definition::types::CONTEXT);
+            ASSERT_EQ((std::string_view)"foo", funcContext->symbol);
+            ASSERT_TRUE(funcContext->wrappers.size() == 2);
+
+            ASSERT_TRUE(globalScope->children[1]->flags == parser::token::type::OPERATOR);
+            auto assignOp = static_cast<parser::token::Operator::base*>(globalScope->children[1]);
+            ASSERT_EQ((std::string_view)"=", assignOp->symbol);
+            ASSERT_TRUE(assignOp->left->flags == parser::token::type::DEFINITION);
+            auto a_Def = static_cast<parser::token::definition::base*>(assignOp->left);
+            ASSERT_EQ((std::string_view)"a", a_Def->symbol);
+            ASSERT_TRUE(assignOp->right->flags == parser::token::type::CALLER);
+            auto caller = static_cast<parser::token::caller*>(assignOp->right);
+            ASSERT_EQ((std::string_view)"foo", caller->symbol);
+            ASSERT_TRUE(caller->parameters.size() == 1);
+            ASSERT_TRUE(caller->parameters[0]->flags == parser::token::type::SCOPE);
+            auto paramScope = static_cast<parser::token::scope::base*>(caller->parameters[0]);
+            ASSERT_TRUE(paramScope->children.size() == 1);
+            ASSERT_TRUE(paramScope->children[0]->flags == parser::token::type::NUMBER);
+            ASSERT_EQ((std::string_view)"1", paramScope->children[0]->symbol);
         }
     };
 }

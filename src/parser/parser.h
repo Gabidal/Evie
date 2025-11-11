@@ -202,6 +202,17 @@ namespace parser {
             static void factory(unit::base* /*Current Translation Unit State*/, int32_t& /*Start Index*/);   
         };
 
+        class caller : public token::object {
+        public:
+            std::vector<scope::base*> parameters; // <>[]()
+
+            caller(info Info, definition::base* ref, std::vector<scope::base*> Contexts = {}) : token::object(Info, ref), parameters(Contexts) {
+                flags = type::CALLER;
+            }
+
+            static void factory(unit::base* /*Current Translation Unit State*/, int32_t& /*Start Index*/);
+        };
+
         namespace Operator {
 
             // Ordered via the order of combination
