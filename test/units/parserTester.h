@@ -22,6 +22,7 @@ namespace tester {
             add_test("Fetching", "test member fetching", test_fetching);
             add_test("Function Return Type", "test function return type fetching", test_fetching_At_Context_Return_Type);
             add_test("Caller Construction", "test caller construction", test_caller_construction);
+            add_test("Condition Parsing", "test condition parsing", test_conditions);
         }
 
     private:
@@ -562,6 +563,72 @@ namespace tester {
             ASSERT_TRUE(paramScope->children.size() == 1);
             ASSERT_TRUE(paramScope->children[0]->flags == parser::token::type::NUMBER);
             ASSERT_EQ((std::string_view)"1", paramScope->children[0]->symbol);
+        }
+
+        static void test_conditions() {
+            auto lexerOutput = lexer::tokenize(
+            "int c, int a = 1, int b = 2\n"
+            "if (a > b) {\n"
+            "  c = a\n"
+            "} else {\n"
+            "  c = b\n"
+            "}\n"
+            , 0);
+
+            parser::token::scope::base* globalScope = new parser::token::scope::base(
+                parser::token::info(
+                    parser::token::type::SCOPE,
+                    lexer::token::position(0, 0, 0),
+                    nullptr,
+                    "global"
+                ),
+                lexerOutput
+            );
+
+            parser::unit::base parse(parser::unit::pass::FIRST, globalScope);
+            parse.factory();
+
+            ASSERT_TRUE(globalScope->children.size() == 5);
+            ASSERT_TRUE(globalScope->children[3]->flags == parser::token::type::CONDITION);
+            auto ifCondition = static_cast<parser::token::condition*>(globalScope->children[3]);
+            ASSERT_EQ((std::string_view)"if", ifCondition->symbol);
+            ASSERT_TRUE(ifCondition->header->flags == parser::token::type::SCOPE);
+            auto ifHeader = static_cast<parser::token::scope::base*>(ifCondition->header);
+
+            ASSERT_TRUE(ifHeader->children.size() == 1);
+            ASSERT_TRUE(ifHeader->children[0]->flags == parser::token::type::OPERATOR);
+            auto conditionOp = static_cast<parser::token::Operator::base*>(ifHeader->children[0]);
+            ASSERT_EQ((std::string_view)">", conditionOp->symbol);
+            ASSERT_TRUE(conditionOp->left->flags == parser::token::type::OBJECT);
+            ASSERT_EQ((std::string_view)"a", conditionOp->left->symbol);
+            ASSERT_TRUE(conditionOp->right->flags == parser::token::type::OBJECT);
+            ASSERT_EQ((std::string_view)"b", conditionOp->right->symbol);
+
+            ASSERT_TRUE(ifCondition->body->flags == parser::token::type::SCOPE);
+            auto ifBody = static_cast<parser::token::scope::base*>(ifCondition->body);
+            ASSERT_TRUE(ifBody->children.size() == 1);
+            ASSERT_TRUE(ifBody->children[0]->flags == parser::token::type::OPERATOR);
+            auto ifAssignOp = static_cast<parser::token::Operator::base*>(ifBody->children[0]);
+            ASSERT_EQ((std::string_view)"=", ifAssignOp->symbol);
+            ASSERT_TRUE(ifAssignOp->left->flags == parser::token::type::OBJECT);
+            ASSERT_EQ((std::string_view)"c", ifAssignOp->left->symbol);
+            ASSERT_TRUE(ifAssignOp->right->flags == parser::token::type::OBJECT);
+            ASSERT_EQ((std::string_view)"a", ifAssignOp->right->symbol);
+
+            ASSERT_TRUE(globalScope->children[4]->flags == parser::token::type::CONDITION);
+            auto elseCondition = static_cast<parser::token::condition*>(globalScope->children[4]);
+            ASSERT_EQ((std::string_view)"else", elseCondition->symbol);
+            ASSERT_TRUE(elseCondition->body->flags == parser::token::type::SCOPE);
+            ASSERT_TRUE(elseCondition->header == nullptr);
+            auto elseBody = static_cast<parser::token::scope::base*>(elseCondition->body);
+            ASSERT_TRUE(elseBody->children.size() == 1);
+            ASSERT_TRUE(elseBody->children[0]->flags == parser::token::type::OPERATOR);
+            auto elseAssignOp = static_cast<parser::token::Operator::base*>(elseBody->children[0]);
+            ASSERT_EQ((std::string_view)"=", elseAssignOp->symbol);
+            ASSERT_TRUE(elseAssignOp->left->flags == parser::token::type::OBJECT);
+            ASSERT_EQ((std::string_view)"c", elseAssignOp->left->symbol);
+            ASSERT_TRUE(elseAssignOp->right->flags == parser::token::type::OBJECT);
+            ASSERT_EQ((std::string_view)"b", elseAssignOp->right->symbol);
         }
     };
 }

@@ -53,6 +53,8 @@ namespace parser {
 
         extern ::utils::range findSubsequentTokens(base* /*Current Translation Unit*/, lexer::token::types /*Token type*/, int32_t /*Start Index*/);
 
+        extern ::utils::range findSubsequentParsedTokens(base* /*Current Translation Unit*/, int32_t /*Start Index*/);
+
         extern ::utils::range findSubsequentTokens(base* /*Current Translation Unit*/, std::vector<std::pair<lexer::token::types, std::string_view>> /*Requirements*/, int32_t /*Start Index*/);
 
         extern void replaceDefinition(token::base* old, token::base* New);
@@ -69,6 +71,8 @@ namespace parser {
             SCOPE,          // Any occurrence of a scope block (function, class, namespace, parenthesis, etc).
             CALLER,         // Function call operator.
             NUMBER,         // Any number in Real space
+            CONDITION,      // If, elses
+            LOOP,           // Loopers
         };
         
         namespace scope {
@@ -317,6 +321,30 @@ namespace parser {
                 bool is(std::string_view symbol);
             }
         }
+    
+        class condition : public token::base {
+        public:
+            token::base* header;
+            token::base* body;
+
+            condition(info Info, token::base* Header, token::base* Body) : token::base(Info), header(Header), body(Body) {}
+
+            static void factory(unit::base* /*Current Translation Unit State*/, int32_t& /*Start Index*/);
+
+            [[nodiscard]] token::base* findClosestDefinition(std::string_view Symbol) override {
+                // Check header first
+                token::base* result = nullptr;
+                
+                if (header) result = header->findClosestDefinition(Symbol);
+
+                // Then body
+                if (!result) {
+                    result = body->findClosestDefinition(Symbol);
+                }
+
+                return result;
+            }
+        };
     }
 
 }

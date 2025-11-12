@@ -25,6 +25,7 @@ namespace parser {
                 token::caller::factory(this, index);    // Right after object pattern
                 token::scope::parenthesis::factory(this, index);
                 token::Operator::fetcher::factory(this, index);
+                token::condition::factory(this, index);
                 // -_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
                 
             }
@@ -48,6 +49,18 @@ namespace parser {
             result = {startIndex, startIndex}; 
             result.max < (int32_t)Unit->tokens.size() &&                  // Check that we are still within the bounds
             Unit->tokens[result.max]->get_type() == type;        // Check that the current token is of the requested type
+            result.max++
+        );
+
+        return result;
+    }
+
+    utils::range unit::findSubsequentParsedTokens(base* Unit, int32_t startIndex) {
+        utils::range result;
+        for (
+            result = {startIndex, startIndex}; 
+            result.max < (int32_t)Unit->tokens.size() &&                  // Check that we are still within the bounds
+            Unit->tokens[result.max]->parsed;                             // Check that the current token is parsed
             result.max++
         );
 
@@ -174,10 +187,12 @@ namespace parser {
 
         token::base* reference = currentText->parsed;
 
-        if (reference) return;
+        if (reference) return;  // Dont override existing parsed
 
         // If not, then we need to find the defined manually
         reference = currentUnit->parent->findClosestDefinition(currentText->data);
+
+        if (!reference) return; // Keywords?
 
         token::object* newObject = new token::object(
             token::info(
@@ -716,5 +731,48 @@ namespace parser {
 
         // remove i+wrappers.size()
         currentUnit->tokens.erase(currentUnit->tokens.begin() + wrapperRange.min, currentUnit->tokens.begin() + wrapperRange.max);
+    }
+
+    void token::condition::condition::factory(unit::base* currentUnit, int32_t& startIndex) {
+        if (currentUnit->passIndex != unit::pass::SECOND) return;    // Conditions need callers to be parsed first.
+        
+        // require: <text> <any token> <any token>
+        if (currentUnit->at<lexer::token::base>(startIndex)->get_type() != lexer::token::types::TEXT) return;
+        if (currentUnit->at<lexer::token::base>(startIndex)->parsed) return;    // Keywords should have no parsed data.
+
+        std::string_view symbol = currentUnit->at<lexer::token::text>(startIndex)->data;
+        token::base* header = nullptr;
+        token::base* body = nullptr;
+
+        utils::range wrapperRange = unit::findSubsequentParsedTokens(
+            currentUnit,
+            startIndex + 1
+        );
+
+        if ((symbol == "if" || symbol == "else") && wrapperRange.length() == 2) {
+            header = currentUnit->at<lexer::token::base>(startIndex + 1)->parsed;
+            body = currentUnit->at<lexer::token::base>(startIndex + 2)->parsed;
+        }
+        else if (symbol == "else" && wrapperRange.length() == 1) {
+            body = currentUnit->at<lexer::token::base>(startIndex + 1)->parsed;
+        }
+        else return;
+
+        token::condition* newCondition = new token::condition(
+            token::info(
+                token::type::CONDITION,
+                currentUnit->at<lexer::token::text>(startIndex)->get_start(),
+                currentUnit->parent,
+                currentUnit->at<lexer::token::text>(startIndex)->data
+            ),
+            header,
+            body
+        );
+
+        currentUnit->at<lexer::token::text>(startIndex)->parsed = newCondition;
+
+        // Remove
+        if (header && body) currentUnit->tokens.erase(currentUnit->tokens.begin() + startIndex + 1, currentUnit->tokens.begin() + startIndex + 3);
+        else if (body) currentUnit->tokens.erase(currentUnit->tokens.begin() + startIndex + 1, currentUnit->tokens.begin() + startIndex + 2);
     }
 }
