@@ -26,6 +26,7 @@ namespace parser {
                 token::scope::parenthesis::factory(this, index);
                 token::Operator::fetcher::factory(this, index);
                 token::condition::factory(this, index);
+                token::looper::factory(this, index);
                 // -_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
                 
             }
@@ -744,17 +745,17 @@ namespace parser {
         token::base* header = nullptr;
         token::base* body = nullptr;
 
-        utils::range wrapperRange = unit::findSubsequentParsedTokens(
+        utils::range nextTokens = unit::findSubsequentParsedTokens(
             currentUnit,
             startIndex + 1
         );
 
-        if ((symbol == "if" || symbol == "else") && wrapperRange.length() == 2) {
-            header = currentUnit->at<lexer::token::base>(startIndex + 1)->parsed;
-            body = currentUnit->at<lexer::token::base>(startIndex + 2)->parsed;
+        if ((symbol == "if" || symbol == "else") && nextTokens.length() == 2) {
+            header = currentUnit->at<lexer::token::base>(nextTokens.min)->parsed;
+            body = currentUnit->at<lexer::token::base>(nextTokens.max-1)->parsed;
         }
-        else if (symbol == "else" && wrapperRange.length() == 1) {
-            body = currentUnit->at<lexer::token::base>(startIndex + 1)->parsed;
+        else if (symbol == "else" && nextTokens.length() == 1) {
+            body = currentUnit->at<lexer::token::base>(nextTokens.min)->parsed;
         }
         else return;
 
@@ -772,7 +773,94 @@ namespace parser {
         currentUnit->at<lexer::token::text>(startIndex)->parsed = newCondition;
 
         // Remove
-        if (header && body) currentUnit->tokens.erase(currentUnit->tokens.begin() + startIndex + 1, currentUnit->tokens.begin() + startIndex + 3);
-        else if (body) currentUnit->tokens.erase(currentUnit->tokens.begin() + startIndex + 1, currentUnit->tokens.begin() + startIndex + 2);
+        currentUnit->tokens.erase(currentUnit->tokens.begin() + nextTokens.min, currentUnit->tokens.begin() + nextTokens.max);
+    }
+
+    void token::looper::factory(unit::base* currentUnit, int32_t& startIndex) {
+        if (currentUnit->passIndex != unit::pass::SECOND) return;    // Loopers need callers to be parsed first.
+        
+        // require: <text> <any token> <any token>
+        if (currentUnit->at<lexer::token::base>(startIndex)->get_type() != lexer::token::types::TEXT) return;
+        if (currentUnit->at<lexer::token::base>(startIndex)->parsed) return;    // Keywords should have no parsed data.
+
+        std::string_view symbol = currentUnit->at<lexer::token::text>(startIndex)->data;
+        lexer::token::base* header = nullptr;
+        token::base* body = nullptr;
+
+        utils::range nextTokens = unit::findSubsequentParsedTokens(
+            currentUnit,
+            startIndex + 1
+        );
+
+        if ((symbol == "while" || symbol == "for") && nextTokens.length() == 2) {
+            header = currentUnit->at<lexer::token::base>(nextTokens.min);
+            body = currentUnit->at<lexer::token::base>(nextTokens.max-1)->parsed;
+        }
+        else return;
+
+        token::base* init = nullptr;       // int i = 0, call()
+        token::base* condition = nullptr;  // i < size, true
+        token::base* footer = nullptr;     // i++, call(&i)
+
+        // First lets check if its: while true, or while (...)
+        if (header->get_type() == lexer::token::types::WRAPPER) {
+            auto parsedHeader = dynamic_cast<token::scope::base*>(header->parsed);
+
+            // Let's now see how many parsed tokens this wrapper token contains
+            if (parsedHeader->rawTokens.size() >= 6) throw std::runtime_error("Loop parsedHeader contains too many tokens, maximum is 3 operations + 3 separators.");
+
+            if (parsedHeader->rawTokens.size() == 1 && parsedHeader->rawTokens[0]->parsed) {
+                condition = parsedHeader->rawTokens[0]->parsed;
+            }
+            else {
+                // We need to discern between (; i < a;), (;; i++), (int i = 0; i < a; i++), (int i;;)
+                std::vector<std::pair<int32_t, token::base*>> operandLocation;
+
+                int32_t separatorCount = 0;
+
+                for (int32_t i = 0; i < (int32_t)parsedHeader->rawTokens.size(); i++) {
+                    // if we hit an separator lets log it
+                    if (parsedHeader->rawTokens[i]->get_type() == lexer::token::types::SEPARATOR) separatorCount++;
+                    // If we hit a parsed token we log it with the current separator count
+                    else if (parsedHeader->rawTokens[i]->parsed) operandLocation.push_back({separatorCount, parsedHeader->rawTokens[i]->parsed});
+                }
+
+                for (const auto& [index, operand] : operandLocation) {
+                    if (index == 0) {
+                        init = operand;
+                    }
+                    else if (index == 1) {
+                        condition = operand;
+                    }
+                    else if (index == 2) {
+                        footer = operand;
+                    }
+                }
+            }
+        }
+        else {
+            // Either a straight boolean is given or function call so basic base suffices
+            condition = currentUnit->at<lexer::token::base>(nextTokens.min)->parsed;
+        }
+
+
+        token::looper* newLooper = new token::looper(
+            token::info(
+                token::type::LOOP,
+                currentUnit->at<lexer::token::text>(startIndex)->get_start(),
+                currentUnit->parent,
+                currentUnit->at<lexer::token::text>(startIndex)->data
+            ),
+            init,
+            condition,
+            footer,
+            body
+        );
+
+        currentUnit->at<lexer::token::text>(startIndex)->parsed = newLooper;
+
+        // Remove
+        currentUnit->tokens.erase(currentUnit->tokens.begin() + nextTokens.min, currentUnit->tokens.begin() + nextTokens.max);
+    
     }
 }

@@ -23,15 +23,12 @@ namespace tester {
             add_test("Function Return Type", "test function return type fetching", test_fetching_At_Context_Return_Type);
             add_test("Caller Construction", "test caller construction", test_caller_construction);
             add_test("Condition Parsing", "test condition parsing", test_conditions);
+            add_test("Loop Parsing", "test loop parsing", test_loops);
         }
 
     private:
-        
-        static void test_simple_definition() {
-            auto lexerOutput = lexer::tokenize(
-            "int a;\n"
-            "int b;\n"
-            , 0);
+        static parser::token::scope::base* parse(std::string input) {
+            auto lexerOutput = lexer::tokenize(input, 0);
 
             parser::token::scope::base* globalScope = new parser::token::scope::base(
                 parser::token::info(
@@ -45,6 +42,15 @@ namespace tester {
 
             parser::unit::base parse(parser::unit::pass::FIRST, globalScope);
             parse.factory();
+
+            return globalScope;
+        }
+        
+        static void test_simple_definition() {
+            parser::token::scope::base* globalScope = parse(
+                "int a;\n"
+                "int b;\n"
+            );
 
             ASSERT_EQ((size_t)2, globalScope->definitions.size());
 
@@ -62,24 +68,11 @@ namespace tester {
         }
 
         static void test_operation_order() {
-            auto lexerOutput = lexer::tokenize(
+            parser::token::scope::base* globalScope = parse(
             "int a, int b, int c, int d\n"
             "a = 1 + 2 * 3 - 4\n"
             "a == 5 && b != 6 || c < 7 >= d\n"
-            , 0);
-
-            parser::token::scope::base* globalScope = new parser::token::scope::base(
-                parser::token::info(
-                    parser::token::type::SCOPE,
-                    lexer::token::position(0, 0, 0),
-                    nullptr,
-                    "global"
-                ),
-                lexerOutput
             );
-
-            parser::unit::base parse(parser::unit::pass::FIRST, globalScope);
-            parse.factory();
 
             // Test: a = 1 + 2 * 3 - 4
             // Expected AST: a = ((1 + (2 * 3)) - 4)
@@ -242,23 +235,10 @@ namespace tester {
         }
     
         static void test_simple_parenthesis() {
-            auto lexerOutput = lexer::tokenize(
+            parser::token::scope::base* globalScope = parse(
             "int a, int b, int c, int d\n"
             "a = (c + b) * d\n"
-            , 0);
-
-            parser::token::scope::base* globalScope = new parser::token::scope::base(
-                parser::token::info(
-                    parser::token::type::SCOPE,
-                    lexer::token::position(0, 0, 0),
-                    nullptr,
-                    "global"
-                ),
-                lexerOutput
             );
-
-            parser::unit::base parse(parser::unit::pass::FIRST, globalScope);
-            parse.factory();
 
             ASSERT_EQ((size_t)5, globalScope->children.size());
             ASSERT_TRUE(globalScope->children[4]->flags == parser::token::type::OPERATOR);
@@ -284,25 +264,12 @@ namespace tester {
         }
 
         static void test_chained_parenthesis() {
-            auto lexerOutput = lexer::tokenize(
+            parser::token::scope::base* globalScope = parse(
             "void foo(int a, int b) {\n"
             "  int c = a + b\n"
             "  int d = c - a\n"
             "}"
-            , 0);
-
-            parser::token::scope::base* globalScope = new parser::token::scope::base(
-                parser::token::info(
-                    parser::token::type::SCOPE,
-                    lexer::token::position(0, 0, 0),
-                    nullptr,
-                    "global"
-                ),
-                lexerOutput
             );
-
-            parser::unit::base parse(parser::unit::pass::FIRST, globalScope);
-            parse.factory();
 
             ASSERT_TRUE(globalScope->children.size() == 1);
             ASSERT_TRUE(globalScope->children[0]->flags == parser::token::type::DEFINITION);
@@ -361,25 +328,12 @@ namespace tester {
         }
 
         static void test_single_wrapper_context() {
-            auto lexerOutput = lexer::tokenize(
+            parser::token::scope::base* globalScope = parse(
             "class a {\n"
             "  int b = 0\n"
             "  int c = b\n"
             "}\n"
-            , 0);
-
-            parser::token::scope::base* globalScope = new parser::token::scope::base(
-                parser::token::info(
-                    parser::token::type::SCOPE,
-                    lexer::token::position(0, 0, 0),
-                    nullptr,
-                    "global"
-                ),
-                lexerOutput
             );
-
-            parser::unit::base parse(parser::unit::pass::FIRST, globalScope);
-            parse.factory();
 
             ASSERT_TRUE(globalScope->children.size() == 1);
             ASSERT_TRUE(globalScope->children[0]->flags == parser::token::type::DEFINITION);
@@ -416,27 +370,14 @@ namespace tester {
         }
 
         static void test_fetching() {
-            auto lexerOutput = lexer::tokenize(
+            parser::token::scope::base* globalScope = parse(
             "class a {\n"
             "  int b = 0\n"
             "}\n"
             "\n"
             "a b\n"
             "b.b = 1\n"
-            , 0);
-
-            parser::token::scope::base* globalScope = new parser::token::scope::base(
-                parser::token::info(
-                    parser::token::type::SCOPE,
-                    lexer::token::position(0, 0, 0),
-                    nullptr,
-                    "global"
-                ),
-                lexerOutput
             );
-
-            parser::unit::base parse(parser::unit::pass::FIRST, globalScope);
-            parse.factory();
 
             ASSERT_TRUE(globalScope->children.size() == 3);
             ASSERT_TRUE(globalScope->children[0]->flags == parser::token::type::DEFINITION);
@@ -465,27 +406,14 @@ namespace tester {
         }
 
         void static test_fetching_At_Context_Return_Type() {
-            auto lexerOutput = lexer::tokenize(
+            parser::token::scope::base* globalScope = parse(
             "class a {\n"
             "  int b = 0\n"
             "}\n"
             "a.b foo(int c) {\n"
             "  int d = c\n"
             "}"
-            , 0);
-
-            parser::token::scope::base* globalScope = new parser::token::scope::base(
-                parser::token::info(
-                    parser::token::type::SCOPE,
-                    lexer::token::position(0, 0, 0),
-                    nullptr,
-                    "global"
-                ),
-                lexerOutput
             );
-
-            parser::unit::base parse(parser::unit::pass::FIRST, globalScope);
-            parse.factory();
 
             ASSERT_TRUE(globalScope->children.size() == 2);
             ASSERT_TRUE(globalScope->children[0]->flags == parser::token::type::DEFINITION);
@@ -521,25 +449,12 @@ namespace tester {
         }
 
         static void test_caller_construction() {
-            auto lexerOutput = lexer::tokenize(
+            parser::token::scope::base* globalScope = parse(
             "void foo(int c) {\n"
             "  int d = c\n"
             "}\n"
             "int a = foo(1)\n"
-            , 0);
-
-            parser::token::scope::base* globalScope = new parser::token::scope::base(
-                parser::token::info(
-                    parser::token::type::SCOPE,
-                    lexer::token::position(0, 0, 0),
-                    nullptr,
-                    "global"
-                ),
-                lexerOutput
             );
-
-            parser::unit::base parse(parser::unit::pass::FIRST, globalScope);
-            parse.factory();
 
             ASSERT_TRUE(globalScope->children.size() == 2);
             ASSERT_TRUE(globalScope->children[0]->flags == parser::token::type::DEFINITION);
@@ -566,27 +481,14 @@ namespace tester {
         }
 
         static void test_conditions() {
-            auto lexerOutput = lexer::tokenize(
+            parser::token::scope::base* globalScope = parse(
             "int c, int a = 1, int b = 2\n"
             "if (a > b) {\n"
             "  c = a\n"
             "} else {\n"
             "  c = b\n"
             "}\n"
-            , 0);
-
-            parser::token::scope::base* globalScope = new parser::token::scope::base(
-                parser::token::info(
-                    parser::token::type::SCOPE,
-                    lexer::token::position(0, 0, 0),
-                    nullptr,
-                    "global"
-                ),
-                lexerOutput
             );
-
-            parser::unit::base parse(parser::unit::pass::FIRST, globalScope);
-            parse.factory();
 
             ASSERT_TRUE(globalScope->children.size() == 5);
             ASSERT_TRUE(globalScope->children[3]->flags == parser::token::type::CONDITION);
@@ -629,6 +531,150 @@ namespace tester {
             ASSERT_EQ((std::string_view)"c", elseAssignOp->left->symbol);
             ASSERT_TRUE(elseAssignOp->right->flags == parser::token::type::OBJECT);
             ASSERT_EQ((std::string_view)"b", elseAssignOp->right->symbol);
+        }
+    
+        static void test_loops() {
+            parser::token::scope::base* globalScope = parse(
+            "int a, int b, int c\n"
+            "while (a < b) {\n"
+            "  a++\n"
+            "}\n"
+            "\n"
+            "for (int i = 0; i < a; i++) {\n"
+            "  b++\n"
+            "}\n"
+            "\n"            
+            "for (; c < a; c++) {\n"
+            "  a++\n"
+            "}\n"
+            "\n"
+            "for (;b < a && c > a;) {\n"
+            "  b++\n"
+            "}\n"
+            "\n"
+            );
+
+            // Should have: 3 definitions (a, b, c) + 4 loops = 7 children
+            ASSERT_TRUE(globalScope->children.size() == 7);
+            
+            // Test while loop: while (a < b) { a++ }
+            ASSERT_TRUE(globalScope->children[3]->flags == parser::token::type::LOOP);
+            auto whileLoop = static_cast<parser::token::looper*>(globalScope->children[3]);
+            ASSERT_EQ((std::string_view)"while", whileLoop->symbol);
+            ASSERT_TRUE(whileLoop->init == nullptr);
+            ASSERT_TRUE(whileLoop->condition != nullptr);
+            ASSERT_TRUE(whileLoop->footer == nullptr);
+            ASSERT_TRUE(whileLoop->body != nullptr);
+            
+            // Check while condition: a < b
+            ASSERT_TRUE(whileLoop->condition->flags == parser::token::type::OPERATOR);
+            auto whileCondOp = static_cast<parser::token::Operator::base*>(whileLoop->condition);
+            ASSERT_EQ((std::string_view)"<", whileCondOp->symbol);
+            ASSERT_TRUE(whileCondOp->left->flags == parser::token::type::OBJECT);
+            ASSERT_EQ((std::string_view)"a", whileCondOp->left->symbol);
+            ASSERT_TRUE(whileCondOp->right->flags == parser::token::type::OBJECT);
+            ASSERT_EQ((std::string_view)"b", whileCondOp->right->symbol);
+            
+            // Check while body
+            ASSERT_TRUE(whileLoop->body->flags == parser::token::type::SCOPE);
+            auto whileBody = static_cast<parser::token::scope::base*>(whileLoop->body);
+            ASSERT_TRUE(whileBody->children.size() == 1);
+            ASSERT_TRUE(whileBody->children[0]->flags == parser::token::type::OPERATOR);
+            auto whileIncOp = static_cast<parser::token::Operator::fix::base*>(whileBody->children[0]);
+            ASSERT_EQ((std::string_view)"++", whileIncOp->symbol);
+            
+            // Test for loop with full syntax: for (int i = 0; i < a; i++) { b++ }
+            ASSERT_TRUE(globalScope->children[4]->flags == parser::token::type::LOOP);
+            auto forLoop1 = static_cast<parser::token::looper*>(globalScope->children[4]);
+            ASSERT_EQ((std::string_view)"for", forLoop1->symbol);
+            ASSERT_TRUE(forLoop1->init != nullptr);
+            ASSERT_TRUE(forLoop1->condition != nullptr);
+            ASSERT_TRUE(forLoop1->footer != nullptr);
+            ASSERT_TRUE(forLoop1->body != nullptr);
+            
+            // Check init: int i = 0
+            ASSERT_TRUE(forLoop1->init->flags == parser::token::type::OPERATOR);
+            auto initOp = static_cast<parser::token::Operator::base*>(forLoop1->init);
+            ASSERT_EQ((std::string_view)"=", initOp->symbol);
+            ASSERT_TRUE(initOp->left->flags == parser::token::type::DEFINITION);
+            ASSERT_EQ((std::string_view)"i", initOp->left->symbol);
+            ASSERT_TRUE(initOp->right->flags == parser::token::type::NUMBER);
+            ASSERT_EQ((std::string_view)"0", initOp->right->symbol);
+            
+            // Check condition: i < a
+            ASSERT_TRUE(forLoop1->condition->flags == parser::token::type::OPERATOR);
+            auto condOp = static_cast<parser::token::Operator::base*>(forLoop1->condition);
+            ASSERT_EQ((std::string_view)"<", condOp->symbol);
+            ASSERT_TRUE(condOp->left->flags == parser::token::type::OBJECT);
+            ASSERT_EQ((std::string_view)"i", condOp->left->symbol);
+            ASSERT_TRUE(condOp->right->flags == parser::token::type::OBJECT);
+            ASSERT_EQ((std::string_view)"a", condOp->right->symbol);
+            
+            // Check footer: i++
+            ASSERT_TRUE(forLoop1->footer->flags == parser::token::type::OPERATOR);
+            auto footerOp = static_cast<parser::token::Operator::fix::base*>(forLoop1->footer);
+            ASSERT_EQ((std::string_view)"++", footerOp->symbol);
+            
+            // Check body: b++
+            ASSERT_TRUE(forLoop1->body->flags == parser::token::type::SCOPE);
+            auto forBody1 = static_cast<parser::token::scope::base*>(forLoop1->body);
+            ASSERT_TRUE(forBody1->children.size() == 1);
+            ASSERT_TRUE(forBody1->children[0]->flags == parser::token::type::OPERATOR);
+            
+            // Test for loop with missing init: for (; c < a; c++) { a++ }
+            ASSERT_TRUE(globalScope->children[5]->flags == parser::token::type::LOOP);
+            auto forLoop2 = static_cast<parser::token::looper*>(globalScope->children[5]);
+            ASSERT_EQ((std::string_view)"for", forLoop2->symbol);
+            ASSERT_TRUE(forLoop2->init == nullptr);
+            ASSERT_TRUE(forLoop2->condition != nullptr);
+            ASSERT_TRUE(forLoop2->footer != nullptr);
+            ASSERT_TRUE(forLoop2->body != nullptr);
+            
+            // Check condition: c < a
+            ASSERT_TRUE(forLoop2->condition->flags == parser::token::type::OPERATOR);
+            auto cond2Op = static_cast<parser::token::Operator::base*>(forLoop2->condition);
+            ASSERT_EQ((std::string_view)"<", cond2Op->symbol);
+            ASSERT_TRUE(cond2Op->left->flags == parser::token::type::OBJECT);
+            ASSERT_EQ((std::string_view)"c", cond2Op->left->symbol);
+            ASSERT_TRUE(cond2Op->right->flags == parser::token::type::OBJECT);
+            ASSERT_EQ((std::string_view)"a", cond2Op->right->symbol);
+            
+            // Check footer: c++
+            ASSERT_TRUE(forLoop2->footer->flags == parser::token::type::OPERATOR);
+            auto footer2Op = static_cast<parser::token::Operator::fix::base*>(forLoop2->footer);
+            ASSERT_EQ((std::string_view)"++", footer2Op->symbol);
+            
+            // Test for loop with only condition: for (;b < a && c > a;) { b++ }
+            ASSERT_TRUE(globalScope->children[6]->flags == parser::token::type::LOOP);
+            auto forLoop3 = static_cast<parser::token::looper*>(globalScope->children[6]);
+            ASSERT_EQ((std::string_view)"for", forLoop3->symbol);
+            ASSERT_TRUE(forLoop3->init == nullptr);
+            ASSERT_TRUE(forLoop3->condition != nullptr);
+            ASSERT_TRUE(forLoop3->footer == nullptr);
+            ASSERT_TRUE(forLoop3->body != nullptr);
+            
+            // Check condition: b < a && c > a
+            ASSERT_TRUE(forLoop3->condition->flags == parser::token::type::OPERATOR);
+            auto cond3Op = static_cast<parser::token::Operator::base*>(forLoop3->condition);
+            ASSERT_EQ((std::string_view)"&&", cond3Op->symbol);
+            
+            // Left side of &&: b < a
+            ASSERT_TRUE(cond3Op->left->flags == parser::token::type::OPERATOR);
+            auto leftCond = static_cast<parser::token::Operator::base*>(cond3Op->left);
+            ASSERT_EQ((std::string_view)"<", leftCond->symbol);
+            ASSERT_TRUE(leftCond->left->flags == parser::token::type::OBJECT);
+            ASSERT_EQ((std::string_view)"b", leftCond->left->symbol);
+            ASSERT_TRUE(leftCond->right->flags == parser::token::type::OBJECT);
+            ASSERT_EQ((std::string_view)"a", leftCond->right->symbol);
+            
+            // Right side of &&: c > a
+            ASSERT_TRUE(cond3Op->right->flags == parser::token::type::OPERATOR);
+            auto rightCond = static_cast<parser::token::Operator::base*>(cond3Op->right);
+            ASSERT_EQ((std::string_view)">", rightCond->symbol);
+            ASSERT_TRUE(rightCond->left->flags == parser::token::type::OBJECT);
+            ASSERT_EQ((std::string_view)"c", rightCond->left->symbol);
+            ASSERT_TRUE(rightCond->right->flags == parser::token::type::OBJECT);
+            ASSERT_EQ((std::string_view)"a", rightCond->right->symbol);
         }
     };
 }

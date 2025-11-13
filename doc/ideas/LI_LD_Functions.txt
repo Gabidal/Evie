@@ -1,0 +1,64 @@
+Let's say I have a vector span containing LI and LD vectors.
+This would create a jagged geometric object around the origin.
+How would I find the largest circle that fits inside the jagged geometric shape formed by the vector span? 
+We could just find the smallest value along each vector.
+If we were to switch any of the LD vectors with an LI vector, would this make the fitting circle larger?
+
+Now let's assume each vector represents some function in our codebase.
+If a function is independent from other code and contains only code related to its specific task, we call it an LI function (f * LI).
+If our code instead uses dependencies, such as variables from upper scope such as namespace variables and class members, or depends on other functions listed as (f * LI), our function becomes a dependent function (f * LD).
+
+I think we could mathematically prove what we observe: the more LI functions we have, the larger the fitting circle can be.
+The fitting circle represents the shared area of operations, for example, generalization operations.
+The more f * LI functions our codebase contains, the more generalized code we can combine for shared operations without affecting the output or behavior of our functions.
+
+In contrast, LD functions would decrease the potential for generalization, since they depend on specific operations of other LI functions.
+Because of this, their individual behavior changes when we subtract the generalized area, so the fitting circle needs to be smaller to retain LD functions.
+
+For a compiler, being able to get information about LI and LD functions would be very valuable, as it would provide a real metric for optimization at the whole AST level.
+
+For example, let's say we have a class with two functions, and their vectors are 180 degrees apart, for example, (1, 0) and (-1, 0).
+This would indicate that the functions share zero similarity, since the fitting circle would have zero radius.
+We cannot fit a circle into a one-dimensional vector space that is just a line between -1 and 1.
+
+Now, if we have two functions whose vectors are (0, 1) and (1, 0), these would be LI functions.
+In our code, both functions could be checking the same attribute of the class that contains them, but they do not depend on each other.
+Therefore, the order of calling them or the number of times they are called does not matter.
+
+The part of reading the attributes and checking their values could be moved to its own function without changing behavior and while retaining the same vector space.
+This is an ability that LLVM and other optimizers achieve with much longer and more complex algorithms.
+With vector space representation and LI/LD function classification, we could generalize the optimization strategy more efficiently.
+
+Let's say i have an code like this:
+
+class foo{
+    int a, int b, int c;
+
+    int getA() { return a; }
+    int getB() { return b; }
+    int getC() { return c; }
+
+    int getAB() { return getA() + getB(); }
+    int getBC() { return getB() + getC(); }
+    int getAC() { return getA() + getC(); }
+
+}
+
+Now, what kind of vectors could each function have under the class foo?
+
+[
+    {"getA", (1, 0, 0)},  // LI function
+    {"getB", (0, 1, 0)},  // LI function
+    {"getC", (0, 0, 1)},  // LI function
+    {"getAB", (1, 1, 0)}, // LD function (depends on getA and getB)
+    {"getBC", (0, 1, 1)}, // LD function (depends on getB and getC)
+    {"getAC", (1, 0, 1)}  // LD function (depends on getA and getC)
+]
+
+If we would handle them as a vector span <AB, BC, AC> we can use get the inverse matrix:
+
+    [1, 1, 0]           [1/2, -1/2, 1/2]
+A = [0, 1, 1] , A^-1 =  [1/2, 1/2, -1/2]
+    [1, 0, 1]           [-1/2, 1/2, 1/2]
+
+With the inverse matrix we can get the known LI*f parts from any LD*f function, how this helps us actually with this i have no idea, i'll come back to this later when i know more.

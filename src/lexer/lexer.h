@@ -136,7 +136,7 @@ namespace lexer{
             } type = types::UNKNOWN;
 
             separator(position start_position, const std::string& text_value) : base(start_position, token::types::SEPARATOR) {
-                if (text_value == ",") type = types::COMMA;
+                if (text_value == "," || text_value == ";") type = types::COMMA;
                 else if (text_value == " ") type = types::SPACE;
                 else if (text_value == "\n") type = types::NEWLINE;
             }
@@ -308,6 +308,7 @@ namespace lexer{
 
             { token::types::SEPARATOR, ' ', ' ' },
             { token::types::SEPARATOR, ',', ',' },
+            { token::types::SEPARATOR, ';', ';' },
             { token::types::SEPARATOR, '\n', '\n' },
 
             { token::types::WRAPPER, '"', '"' },

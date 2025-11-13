@@ -345,6 +345,33 @@ namespace parser {
                 return result;
             }
         };
+
+        class looper : public token::base {
+        public:
+            token::base* init;       // int i = 0, call()
+            token::base* condition;  // i < size, true
+            token::base* footer;     // i++, call(&i)
+
+            token::base* body;
+
+            looper(info Info, token::base* Init, token::base* Condition, token::base* Footer, token::base* Body) : token::base(Info), init(Init), condition(Condition), footer(Footer), body(Body) {}
+
+            static void factory(unit::base* /*Current Translation Unit State*/, int32_t& /*Start Index*/);
+
+            [[nodiscard]] token::base* findClosestDefinition(std::string_view Symbol) override {
+                // Check init first
+                token::base* result = nullptr;
+                
+                if (init) result = init->findClosestDefinition(Symbol);
+
+                // Then body
+                if (!result && body) {
+                    result = body->findClosestDefinition(Symbol);
+                }
+
+                return result;
+            }
+        };
     }
 
 }
