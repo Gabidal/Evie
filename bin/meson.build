@@ -24,9 +24,11 @@ is_cross = meson.is_cross_build()   # This is to stop infinite recursion, since 
 # Source files for the project
 lib_sources = [
   # Core utilities
+  '../src/args/args.cpp',
   '../src/docker/docker.cpp',
   '../src/lexer/lexer.cpp',
   '../src/parser/parser.cpp',
+  '../src/preprocessor/preprocessor.cpp',
 ]
 
 # Use Meson's buildtype instead of a custom TYPE variable

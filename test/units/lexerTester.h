@@ -1,5 +1,5 @@
-#ifndef _LEXER_TESTER_H_
-#define _LEXER_TESTER_H_
+#ifndef _lexer_tester_h_
+#define _lexer_tester_h_
 
 #include "utils.h"
 #include "../../src/lexer/lexer.h"

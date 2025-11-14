@@ -1,5 +1,5 @@
-#ifndef _TEST_UTILS_H_
-#define _TEST_UTILS_H_
+#ifndef _test_utils_h_
+#define _test_utils_h_
 
 #include <ggui.h>
 

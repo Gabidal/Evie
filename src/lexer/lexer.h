@@ -1,6 +1,10 @@
 #ifndef _lexer_h_
 #define _lexer_h_
 
+/**
+ * Takes std::string or a file as an input and outputs nested lexed::tokens.
+ */
+
 #include <string>
 #include <vector>
 #include <mutex>

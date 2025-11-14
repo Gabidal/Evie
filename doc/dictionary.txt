@@ -1,0 +1,20 @@
+Here i'll write all weird made up words for me to remember what i was even on about later on, and for others too to understand. For those who forgor after 🥀
+
+AST:
+    Abstract Syntax Tree, probably should know that if you're here tho.
+
+Surface-AST:
+    Can contain types, but does not care for them, so no type checking and more free typed like how JS or Python does it.
+
+Core-AST:
+    Must contain types for every defined and their reference in objects throughout the Tree.
+
+Two-Grouped Codes:
+    Template:
+        All functions, classes or any scope that takes some parameter. For an example giving an template argument is counted as giving an parameter to that scope, to be re-instantiated by that new type as a new copy.
+
+    Non-Template:
+        Solved variants of the Template definitions. For an example when calling some class or function with given Non-Templated parameters will cause the Templated code to become Non-Templated.
+
+Hardening:
+    The process of transforming a Surface-AST into a Core-AST.

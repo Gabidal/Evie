@@ -1,5 +1,5 @@
-#ifndef _PARSER_TESTER_H_
-#define _PARSER_TESTER_H_
+#ifndef _parser_tester_h_
+#define _parser_tester_h_
 
 #include "utils.h"
 #include "../../src/parser/parser.h"
@@ -488,6 +488,9 @@ namespace tester {
             "} else {\n"
             "  c = b\n"
             "}\n"
+            // "if (sys.os == \"win\") {\n"
+            // "  use \"std.e\"\n"
+            // "}\n"
             );
 
             ASSERT_TRUE(globalScope->children.size() == 5);

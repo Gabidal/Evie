@@ -1,5 +1,5 @@
-#ifndef _BITMASK_TESTER_H_
-#define _BITMASK_TESTER_H_
+#ifndef _bitmask_tester_h_
+#define _bitmask_tester_h_
 
 #include "utils.h"
 #include "../../src/utils/utils.h"

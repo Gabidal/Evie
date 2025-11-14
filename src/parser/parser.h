@@ -1,5 +1,9 @@
-#ifndef _PARSER_H_
-#define _PARSER_H_
+#ifndef _parser_h_
+#define _parser_h_
+
+/**
+ * Takes as input from lexer tokens and creates a free-typed Surface-AST for preprocessor.
+ */
 
 #include "../utils/utils.h"
 #include "../lexer/lexer.h"
