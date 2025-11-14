@@ -28,6 +28,7 @@ namespace tester {
             add_test("Tokenize Multiple Hex Literals", "multiple hex tokens keep separators intact", test_tokenize_multiple_hex_literals);
             add_test("Tokenize Combined Operators", "compound operators stay merged as single tokens", test_tokenize_combined_operators);
             add_test("Tokenize Basic String", "string literals are tokenized correctly", test_tokenize_basic_string);
+            add_test("Tokenize Escape String Newline", "escape sequences with newlines are tokenized correctly", test_tokenize_escape_string_newline);
         }
 
     private:
@@ -313,6 +314,40 @@ namespace tester {
             ASSERT_TRUE(wrap->tokens[4]->get_type() == lexer::token::types::OPERATOR);
 
             ASSERT_TRUE(wrap->identity == '"');
+        }
+
+        static void test_tokenize_escape_string_newline() {
+            TokenGuard guard;
+            guard.tokens = lexer::tokenize("int abc = \"above\\nbelow\\r\\t\\x00FF0011\\\"\\\\\"", 0);
+
+            ASSERT_EQ(static_cast<std::size_t>(4), guard.tokens.size());
+            ASSERT_TRUE(guard.tokens[0]->get_type() == lexer::token::types::TEXT);
+            ASSERT_TRUE(guard.tokens[1]->get_type() == lexer::token::types::TEXT);
+            ASSERT_TRUE(guard.tokens[2]->get_type() == lexer::token::types::OPERATOR);
+            ASSERT_TRUE(guard.tokens[3]->get_type() == lexer::token::types::WRAPPER);
+
+            auto* wrap = static_cast<lexer::token::wrapper*>(guard.tokens[3]);
+            ASSERT_EQ(static_cast<std::size_t>(8), wrap->tokens.size());
+            ASSERT_TRUE(wrap->tokens[0]->get_type() == lexer::token::types::TEXT);
+            ASSERT_TRUE(wrap->tokens[1]->get_type() == lexer::token::types::ESCAPE);
+            auto* escape1 = static_cast<lexer::token::escape*>(wrap->tokens[1]);
+            ASSERT_EQ(std::string("n"), escape1->sequence);
+            ASSERT_TRUE(wrap->tokens[2]->get_type() == lexer::token::types::TEXT);
+            ASSERT_TRUE(wrap->tokens[3]->get_type() == lexer::token::types::ESCAPE);
+            auto* escape2 = static_cast<lexer::token::escape*>(wrap->tokens[3]);
+            ASSERT_EQ(std::string("r"), escape2->sequence);
+            ASSERT_TRUE(wrap->tokens[4]->get_type() == lexer::token::types::ESCAPE);
+            auto* escape3 = static_cast<lexer::token::escape*>(wrap->tokens[4]);
+            ASSERT_EQ(std::string("t"), escape3->sequence);
+            ASSERT_TRUE(wrap->tokens[5]->get_type() == lexer::token::types::ESCAPE);
+            auto* escape4 = static_cast<lexer::token::escape*>(wrap->tokens[5]);
+            ASSERT_EQ(std::string("x00FF0011"), escape4->sequence);
+            ASSERT_TRUE(wrap->tokens[6]->get_type() == lexer::token::types::ESCAPE);
+            auto* escape5 = static_cast<lexer::token::escape*>(wrap->tokens[6]);
+            ASSERT_EQ(std::string("\""), escape5->sequence);
+            ASSERT_TRUE(wrap->tokens[7]->get_type() == lexer::token::types::ESCAPE);
+            auto* escape6 = static_cast<lexer::token::escape*>(wrap->tokens[7]);
+            ASSERT_EQ(std::string("\\"), escape6->sequence);
         }
     };
 }

@@ -26,6 +26,7 @@ namespace parser {
                 token::condition::factory(this, index);
                 token::looper::factory(this, index);
                 token::string::factory(this, index);
+                token::string::escape::factory(this, index);
             }
             
             // SPECIAL FACTORIES:
@@ -707,6 +708,40 @@ namespace parser {
 
         // Now we can write the parsed string
         currentWrapper->parsed = newStringScope;
+    }
+
+    void token::string::escape::factory(unit::base* currentUnit, int32_t& startIndex) {
+        if (currentUnit->passIndex != unit::pass::FIRST) return;
+        if (!currentUnit->inString) return;
+        if (currentUnit->at<lexer::token::base>(startIndex)->get_type() != lexer::token::types::ESCAPE) return;
+
+        lexer::token::escape* esc = currentUnit->at<lexer::token::escape>(startIndex);
+
+        if (esc->sequence[0] == 'n') {
+            esc->sequence = "\n";
+        } else if (esc->sequence[0] == 't') {
+            esc->sequence = "\t";
+        } else if (esc->sequence[0] == 'r') {
+            esc->sequence = "\r";
+        } else if (esc->sequence[0] == '\\') {
+            esc->sequence = "\\";
+        } else if (esc->sequence[0] == '\'') {
+            esc->sequence = "\'";
+        } else if (esc->sequence[0] == '\"') {
+            esc->sequence = "\"";
+        } else if (esc->sequence[0] == 'x') {
+            std::string result = "";
+
+            if ((esc->sequence.size() - 1) % 2 != 0) throw std::runtime_error("Invalid hex escape sequence length in string.");
+
+            for (int i = 1; i < (int32_t)esc->sequence.size(); i += 2) {
+                std::string hexByteStr = esc->sequence.substr(i, 2);
+                char byte = static_cast<char>(std::stoi(hexByteStr, nullptr, 16));
+                result += byte;
+            }
+
+            esc->sequence = result;
+        }
     }
 
     void token::string::base::bakeTokensToString() {

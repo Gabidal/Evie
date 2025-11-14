@@ -31,6 +31,8 @@ namespace lexer{
             return new token::number(position, text);
         case token::types::WRAPPER:
             return new token::wrapper(position, text);
+        case token::types::ESCAPE:
+            return new token::escape(position, text);
         case token::types::CONTROL:
             return new token::control(position, text); 
         default:
@@ -124,7 +126,17 @@ namespace lexer{
 
             for (unsigned int wrapper_end_index = wrapper_start_index + 1; wrapper_end_index < wrapper_indicies.size(); wrapper_end_index++){
                 
-                char wrapper_end_identity = static_cast<token::wrapper*>(tokens[wrapper_indicies[wrapper_end_index]])->identity;
+                unsigned int current_wrapper_index = wrapper_indicies[wrapper_end_index];
+                
+                // Skip this wrapper if it's marked as redundant or preceded by a non-redundant escape token (e.g., \")
+                if (tokens[current_wrapper_index]->redundant ||
+                    (current_wrapper_index > 0 && 
+                     tokens[current_wrapper_index - 1]->get_type() == token::types::ESCAPE &&
+                     !tokens[current_wrapper_index - 1]->redundant)){
+                    continue;
+                }
+                
+                char wrapper_end_identity = static_cast<token::wrapper*>(tokens[current_wrapper_index])->identity;
 
                 // make sure that the ending wrap identity is of an right type.
                 if (!symmetric_pair && wrapper_end_identity == wrap_condition.first){
@@ -360,6 +372,104 @@ namespace lexer{
         }
     }
 
+    void process_escape_sequences(std::vector<token::base*>& tokens) {
+        auto is_hex_char = [](char c) {
+            return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+        };
+
+        for (size_t i = 0; i < tokens.size(); ++i) {
+            if (tokens[i]->get_type() == token::types::ESCAPE && i + 1 < tokens.size()) {
+                // Skip if this escape token is already marked as redundant
+                if (tokens[i]->redundant) continue;
+                
+                token::base* next_token = tokens[i + 1];
+                if (!next_token || next_token->redundant) continue;
+
+                auto* escape_token = static_cast<token::escape*>(tokens[i]);
+                std::string next_data = next_token->getData();
+
+                if (next_data.empty()) continue;
+
+                // Check if this is a hex escape sequence (\x)
+                if (next_data[0] == 'x' || next_data[0] == 'X') {
+                    std::string hex_sequence = "x";
+                    
+                    // If the 'x' is part of a longer text token, split it
+                    if (next_data.size() > 1) {
+                        // Take only the 'x' for the escape sequence
+                        if (next_token->get_type() == token::types::TEXT) {
+                            auto* text_token = static_cast<token::text*>(next_token);
+                            text_token->data = text_token->data.substr(1);
+                        }
+                    } else {
+                        next_token->redundant = true;
+                    }
+
+                    // Now gather all following hex digits
+                    size_t lookahead = i + 2;
+                    while (lookahead < tokens.size()) {
+                        token::base* candidate = tokens[lookahead];
+                        if (!candidate || candidate->redundant) {
+                            ++lookahead;
+                            continue;
+                        }
+
+                        std::string candidate_data = candidate->getData();
+                        if (candidate_data.empty()) break;
+
+                        // Check if candidate contains hex digits
+                        bool all_hex = true;
+                        for (char c : candidate_data) {
+                            if (!is_hex_char(c)) {
+                                all_hex = false;
+                                break;
+                            }
+                        }
+
+                        if (!all_hex) break;
+
+                        hex_sequence += candidate_data;
+                        candidate->redundant = true;
+                        ++lookahead;
+                    }
+
+                    escape_token->sequence = hex_sequence;
+                } else if (next_token->get_type() == token::types::WRAPPER) {
+                    // Handle escaped wrapper characters (like \", \')
+                    auto* wrapper_token = static_cast<token::wrapper*>(next_token);
+                    char wrapper_char = wrapper_token->identity;
+                    escape_token->sequence = std::string(1, wrapper_char);
+                    next_token->redundant = true;
+                } else if (next_token->get_type() == token::types::ESCAPE) {
+                    // Handle escaped backslash (\\)
+                    escape_token->sequence = "\\";
+                    next_token->redundant = true;
+                } else {
+                    // Single character escape (like \n, \t, \e, \r, etc.)
+                    char first_char = next_data[0];
+                    escape_token->sequence = std::string(1, first_char);
+
+                    // If next_token has more than one character, split it
+                    if (next_data.size() > 1) {
+                        if (next_token->get_type() == token::types::TEXT) {
+                            auto* text_token = static_cast<token::text*>(next_token);
+                            text_token->data = text_token->data.substr(1);
+                        } else if (next_token->get_type() == token::types::NUMBER) {
+                            auto* number_token = static_cast<token::number*>(next_token);
+                            number_token->text = number_token->text.substr(1);
+                        }
+                    } else {
+                        next_token->redundant = true;
+                    }
+                }
+            }
+            else if (tokens[i]->get_type() == token::types::WRAPPER) {
+                auto* wrapper = static_cast<token::wrapper*>(tokens[i]);
+                process_escape_sequences(wrapper->tokens);
+            }
+        }
+    }
+
     void remove_redundant_tokens(std::vector<token::base*>& tokens){
         for (size_t i = 0; i < tokens.size();){
             if (tokens[i]->get_type() == token::types::WRAPPER){
@@ -412,13 +522,15 @@ namespace lexer{
 
         slice_tokens(text, file_id, tokens, wrapper_indicies, number_indicies, newline_indicies);
         
-        combine_numerical_texts(tokens, number_indicies);
-
-        combine_hex_prefix(tokens, number_indicies);
-
         combine_newlines(tokens, newline_indicies);
 
         combine_operator_sequences(tokens);
+
+        process_escape_sequences(tokens);
+
+        combine_numerical_texts(tokens, number_indicies);
+
+        combine_hex_prefix(tokens, number_indicies);
         
         wrap_tokens(tokens, wrapper_indicies);
 

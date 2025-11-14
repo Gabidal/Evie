@@ -36,6 +36,7 @@ namespace lexer{
             SEPARATOR,      // represents commas, spaces and newlines
             NUMBER,
             WRAPPER,        // represents strings, characters, parenthesis, brackets, braces and comments
+            ESCAPE,         // represents escape sequences like \n, \t, \x00FF, etc.
             CONTROL         // EOF and similar
         };
 
@@ -246,6 +247,23 @@ namespace lexer{
             static std::vector<std::pair<char, char>> wrapper_pairs;
         };
 
+        class escape : public base{
+        public:
+            std::string sequence;   // the escape sequence itself (without the backslash)
+
+            escape(position start_position, const std::string& sequence_value) : base(start_position, token::types::ESCAPE), sequence(sequence_value) {}
+            
+            base* clone() const override {
+                return new escape(*this);
+            }
+
+            std::string toString() override {
+                return "[ESCAPE: \"\\\\" + sequence + "\" " + base::toString() + "]";
+            }
+
+            std::string getData() override { return sequence; }
+        };
+
         class control : public base{
         public:
             enum class types{
@@ -346,6 +364,8 @@ namespace lexer{
             { token::types::WRAPPER, '\'', '\'' },
 
             { token::types::NUMBER, '0', '9', true },
+
+            { token::types::ESCAPE, '\\', '\\' },
 
             { token::types::WRAPPER, '#', '#' },
 
