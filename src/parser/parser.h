@@ -38,8 +38,10 @@ namespace parser {
             token::scope::base* parent = nullptr;     // Gives data of the current scope.
             lexerOutput& tokens;                      // Gives a set of indicies for the current scope of lexed tokens
 
-            base(lexerOutput& Tokens) : tokens(Tokens) {}
-            base(pass i, token::scope::base* p);
+            bool inString;
+
+            base(lexerOutput& Tokens) : tokens(Tokens), inString(false) {}
+            base(pass i, token::scope::base* p, bool InString = false);
 
             // Delete copy
             base(const base&) = delete;
@@ -69,8 +71,10 @@ namespace parser {
         // Un-ordered
         enum class type {
             UNKNOWN,        // ???
+            COMMENT,        // #...\n
             DEFINITION,     // Any instance of two or more words. Removes the inherited words and makes the last word an Object type node.
             OBJECT,         // Any occurrence of known defined word.
+            STRING,         // "..." or '...'
             OPERATOR,       // All operator representor type.
             SCOPE,          // Any occurrence of a scope block (function, class, namespace, parenthesis, etc).
             CALLER,         // Function call operator.
@@ -102,6 +106,10 @@ namespace parser {
 
             virtual std::string toString() { 
                 return std::string(symbol) + ": (" + std::to_string(position.x) + ", " + std::to_string(position.y) + ")";
+            }
+
+            virtual std::string getValue() {
+                return std::string(symbol);
             }
         };
 
@@ -142,22 +150,36 @@ namespace parser {
             static void factory(unit::base* /*Current Translation Unit State*/, int32_t& /*Current Index*/);
         };
 
-        class number : public token::base, public lexer::token::number {
+        class number : public token::base {
         public:
-            using lexer::token::number::number;
+            std::string value;
+            lexer::token::number::types numberType;
             uint8_t minRequiredByteSize;
 
-            number(info Info, const std::string& TextValue) : parser::token::base(Info), lexer::token::number(Info.position, TextValue) {
+            number(info Info, const std::string& TextValue) : parser::token::base(Info), value(TextValue) {
+                if(value.find('.') != std::string::npos) numberType = lexer::token::number::types::FLOAT;
+                else if (value.find('x') != std::string::npos || value.find('X') != std::string::npos) numberType = lexer::token::number::types::HEX;
+                else numberType = lexer::token::number::types::INTEGER;
+
                 determineSize();
+
+                transformHexIntoInt();
             }
 
             std::string toString() override {
-                return "[PARSER NUMBER: \"" + text + "\" " + parser::token::base::toString() + "]";
+                return "[PARSER NUMBER: \"" + value + "\" " + parser::token::base::toString() + "]";
             }
 
             static void factory(unit::base* /*Current Translation Unit State*/, int32_t& /*Current Index*/);
+
+            std::string getValue() override {
+                return value;
+            }
+
         private:
             void determineSize();
+
+            void transformHexIntoInt();
         };
 
         namespace scope {
@@ -187,6 +209,23 @@ namespace parser {
             namespace parenthesis {
                 extern void factory(unit::base* /*Current Translation Unit State*/, int32_t& /*Start Index*/);
             }
+
+            namespace comment {
+                extern void factory(unit::base* /*Current Translation Unit State*/, int32_t& /*Start Index*/);
+            }
+        }
+
+        namespace string {
+            class base : public scope::base {
+            public:
+                std::string bakedString;
+
+                base(info Info, unit::lexerOutput RawTokens) : scope::base(Info, RawTokens), bakedString("") {}
+
+                void bakeTokensToString();
+            };
+
+            extern void factory(unit::base* /*Current Translation Unit State*/, int32_t& /*Start Index*/);
         }
 
         // Represents callers, functions, classes, namespaces and more?

@@ -5,6 +5,12 @@
 #include <string_view>
 #include <vector>
 
+namespace parser {
+    namespace token {
+        class base;
+    }
+}
+
 namespace args {
 
     namespace OS {
@@ -41,6 +47,8 @@ namespace args {
 
         void parse(int argc, char** argv);
 
+        // Transforms the current arg into a class under the 
+        void toToken(parser::token::base* scope);
     private:
         std::vector<std::string> arguments;
 

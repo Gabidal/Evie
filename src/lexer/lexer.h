@@ -216,7 +216,34 @@ namespace lexer{
                 return result;
             }
 
-            std::string getData() override { return std::string(1, identity); }
+            std::string getData() override { 
+                std::string result = "";
+                result += getWrapperCondition(identity).first;
+
+                for (const auto& token : tokens) {
+                    result += token->getData();
+                }
+
+                result += getWrapperCondition(identity).second;
+
+                return result;
+            }
+
+            static std::pair<char, char> getWrapperCondition(char c) {
+                std::pair<char, char> result;
+    
+                // find the right wrap condition based on the starting wrap_identity.
+                for (auto pair : wrapper_pairs){
+                    if (pair.first == c){
+                        result = pair;
+                        break;
+                    }
+                }
+
+                return result;
+            }
+        private:
+            static std::vector<std::pair<char, char>> wrapper_pairs;
         };
 
         class control : public base{

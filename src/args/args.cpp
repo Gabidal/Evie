@@ -1,4 +1,6 @@
 #include "args.h"
+#include "../parser/parser.h"
+
 #include <stdexcept>
 
 
@@ -193,4 +195,6 @@ void args::base::matchAddressSpace(int& i) {
     }
 }
 
-
+void args::base::toToken(parser::token::base* scope) {
+    
+}

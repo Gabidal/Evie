@@ -27,6 +27,7 @@ namespace tester {
             add_test("Tokenize Hex Literal", "0x prefixed numbers collapse into single hex token", test_tokenize_hex_literal);
             add_test("Tokenize Multiple Hex Literals", "multiple hex tokens keep separators intact", test_tokenize_multiple_hex_literals);
             add_test("Tokenize Combined Operators", "compound operators stay merged as single tokens", test_tokenize_combined_operators);
+            add_test("Tokenize Basic String", "string literals are tokenized correctly", test_tokenize_basic_string);
         }
 
     private:
@@ -294,6 +295,24 @@ namespace tester {
                 auto* op_token = static_cast<lexer::token::op*>(guard.tokens[op_index]);
                 ASSERT_EQ(expected_ops[i], op_token->text);
             }
+        }
+    
+        static void test_tokenize_basic_string() {
+            TokenGuard guard;
+            guard.tokens = lexer::tokenize("\"Hello, World!\"", 0);
+
+            ASSERT_EQ(static_cast<std::size_t>(1), guard.tokens.size());
+            ASSERT_TRUE(guard.tokens[0]->get_type() == lexer::token::types::WRAPPER);
+
+            auto* wrap = static_cast<lexer::token::wrapper*>(guard.tokens[0]);
+            ASSERT_EQ(static_cast<std::size_t>(5), wrap->tokens.size());
+            ASSERT_TRUE(wrap->tokens[0]->get_type() == lexer::token::types::TEXT);
+            ASSERT_TRUE(wrap->tokens[1]->get_type() == lexer::token::types::SEPARATOR);
+            ASSERT_TRUE(wrap->tokens[2]->get_type() == lexer::token::types::SEPARATOR);
+            ASSERT_TRUE(wrap->tokens[3]->get_type() == lexer::token::types::TEXT);
+            ASSERT_TRUE(wrap->tokens[4]->get_type() == lexer::token::types::OPERATOR);
+
+            ASSERT_TRUE(wrap->identity == '"');
         }
     };
 }

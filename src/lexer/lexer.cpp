@@ -99,7 +99,7 @@ namespace lexer{
         emit_token(text.size());
     }
 
-    std::vector<std::pair<char, char>> wrapper_pairs = {
+    std::vector<std::pair<char, char>> token::wrapper::wrapper_pairs = {
         { '(', ')' },
         { '[', ']' },
         { '{', '}' },
@@ -118,15 +118,7 @@ namespace lexer{
 
             char wrapper_start_identity = static_cast<token::wrapper*>(tokens[wrapper_indicies[wrapper_start_index]])->identity;
 
-            std::pair<char, char> wrap_condition;
-
-            // find the right wrap condition based on the starting wrap_identity.
-            for (auto pair : wrapper_pairs){
-                if (pair.first == wrapper_start_identity){
-                    wrap_condition = pair;
-                    break;
-                }
-            }
+            std::pair<char, char> wrap_condition = token::wrapper::getWrapperCondition(wrapper_start_identity);
 
             const bool symmetric_pair = wrap_condition.first == wrap_condition.second;
 

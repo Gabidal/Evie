@@ -24,6 +24,8 @@ namespace tester {
             add_test("Caller Construction", "test caller construction", test_caller_construction);
             add_test("Condition Parsing", "test condition parsing", test_conditions);
             add_test("Loop Parsing", "test loop parsing", test_loops);
+            add_test("Basic String Baking", "test string token baking", test_basic_string_baking);
+            add_test("Hexed String Baking", "test hexed string token baking", test_hexed_string_baking);
         }
 
     private:
@@ -678,6 +680,28 @@ namespace tester {
             ASSERT_EQ((std::string_view)"c", rightCond->left->symbol);
             ASSERT_TRUE(rightCond->right->flags == parser::token::type::OBJECT);
             ASSERT_EQ((std::string_view)"a", rightCond->right->symbol);
+        }
+    
+        static void test_basic_string_baking() {
+            parser::token::scope::base* globalScope = parse(
+            "\"Hello, World!\""
+            );
+
+            ASSERT_EQ((size_t)1, globalScope->children.size());
+            ASSERT_TRUE(globalScope->children[0]->flags == parser::token::type::STRING);
+            auto strToken = static_cast<parser::token::string::base*>(globalScope->children[0]);
+            ASSERT_TRUE(std::string("\"Hello, World!\"") == strToken->bakedString);
+        }
+
+        static void test_hexed_string_baking() {
+            parser::token::scope::base* globalScope = parse(
+            "\"0xFF abc\""
+            );
+
+            ASSERT_EQ((size_t)1, globalScope->children.size());
+            ASSERT_TRUE(globalScope->children[0]->flags == parser::token::type::STRING);
+            auto strToken = static_cast<parser::token::string::base*>(globalScope->children[0]);
+            ASSERT_TRUE(std::string("\"0xFF abc\"") == strToken->bakedString);
         }
     };
 }

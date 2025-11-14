@@ -5,7 +5,7 @@
 
 namespace parser {
 
-    unit::base::base(unit::pass i, token::scope::base* p) : passIndex(i), parent(p), tokens(p->rawTokens) {
+    unit::base::base(unit::pass i, token::scope::base* p, bool InString) : passIndex(i), parent(p), tokens(p->rawTokens), inString(InString) {
 
     }
 
@@ -16,8 +16,6 @@ namespace parser {
             // NOTE: if you decide to use subset traversal then you cannot remove mid loop exhausted tokens, so use reverse traversal!
             for (int32_t index = 0; index < (int32_t)tokens.size(); ++index) {
 
-                // FACTORIES:
-                // -_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
                 token::definition::base::factory(this, index);
                 token::context::factory(this, index);   // Right after definition pattern
                 token::number::factory(this, index);
@@ -27,8 +25,7 @@ namespace parser {
                 token::Operator::fetcher::factory(this, index);
                 token::condition::factory(this, index);
                 token::looper::factory(this, index);
-                // -_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_
-                
+                token::string::factory(this, index);
             }
             
             // SPECIAL FACTORIES:
@@ -224,48 +221,76 @@ namespace parser {
             );
 
             currentNumber->parsed = newNumber;
+
+            if (!currentUnit->inString)
+                currentNumber->text = newNumber->getValue(); // Update lexer token text to match parser token value
         }
     }
 
     void token::number::determineSize() {
         using namespace std;
-        const char* begin = text.data();
-        const char* end = text.data() + text.size();
+        const char* begin = value.data();
+        const char* end = value.data() + value.size();
 
-        if (number_type == types::INTEGER) {
-            long long value{};
-            auto [ptr, ec] = from_chars(begin, end, value);
+        if (numberType == lexer::token::number::types::INTEGER) {
+            long long LLvalue{};
+            auto [ptr, ec] = from_chars(begin, end, LLvalue);
             if (ec == errc::result_out_of_range) { minRequiredByteSize = 8; return; }
 
-            if (value >= numeric_limits<int8_t>::min() && value <= numeric_limits<int8_t>::max())
+            if (LLvalue >= numeric_limits<int8_t>::min() && LLvalue <= numeric_limits<int8_t>::max())
                 minRequiredByteSize = 1;
-            else if (value >= numeric_limits<int16_t>::min() && value <= numeric_limits<int16_t>::max())
+            else if (LLvalue >= numeric_limits<int16_t>::min() && LLvalue <= numeric_limits<int16_t>::max())
                 minRequiredByteSize = 2;
-            else if (value >= numeric_limits<int32_t>::min() && value <= numeric_limits<int32_t>::max())
+            else if (LLvalue >= numeric_limits<int32_t>::min() && LLvalue <= numeric_limits<int32_t>::max())
                 minRequiredByteSize = 4;
             else
                 minRequiredByteSize = 8;
         }
-        else if (number_type == types::FLOAT) {
-            double value = std::stod(text);
-            float f = static_cast<float>(value);
+        else if (numberType == lexer::token::number::types::FLOAT) {
+            double doubleValue = std::stod(value);
+            float f = static_cast<float>(doubleValue);
             // check if conversion preserves value
-            minRequiredByteSize = (static_cast<double>(f) == value) ? 4 : 8;
+            minRequiredByteSize = (static_cast<double>(f) == doubleValue) ? 4 : 8;
         }
-        else if (number_type == types::HEX) {
-            unsigned long long value{};
-            auto [ptr, ec] = from_chars(begin, end, value, 2);
+        else if (numberType == lexer::token::number::types::HEX) {
+            unsigned long long LLvalue{};
+            auto [ptr, ec] = from_chars(begin, end, LLvalue, 2);
             if (ec == errc::result_out_of_range) { minRequiredByteSize = 8; return; }
 
-            if (value <= std::numeric_limits<uint8_t>::max())
+            if (LLvalue <= std::numeric_limits<uint8_t>::max())
                 minRequiredByteSize = 1;
-            else if (value <= std::numeric_limits<uint16_t>::max())
+            else if (LLvalue <= std::numeric_limits<uint16_t>::max())
                 minRequiredByteSize = 2;
-            else if (value <= std::numeric_limits<uint32_t>::max())
+            else if (LLvalue <= std::numeric_limits<uint32_t>::max())
                 minRequiredByteSize = 4;
             else
                 minRequiredByteSize = 8;
         }
+    }
+
+    void token::number::transformHexIntoInt() {
+        if (numberType != lexer::token::number::types::HEX) return;
+
+        const char* begin = value.data();
+        const char* end   = value.data() + value.size();
+
+        // skip optional 0x/0X prefix
+        if (end - begin >= 2 && begin[0] == '0' && (begin[1] == 'x' || begin[1] == 'X'))
+            begin += 2;
+
+        if (begin == end) throw std::runtime_error("Empty hex literal after 0x prefix.");
+
+        unsigned long long LLvalue{};
+        auto [ptr, ec] = std::from_chars(begin, end, LLvalue, 16);
+
+        // require success and full consumption to avoid partial parses like "0xFF" -> parsed '0'
+        if (ec == std::errc() && ptr == end) {
+            value = std::to_string(LLvalue);
+            numberType = lexer::token::number::types::INTEGER;
+            return;
+        }
+
+        throw std::runtime_error("Failed to convert hex number to integer representation.");
     }
 
     token::Operator::type token::Operator::toType(std::string_view symbol) {
@@ -643,11 +668,58 @@ namespace parser {
         );
 
         // Now we can create the sub-parser unit for this scope
-        unit::base subParserUnit(unit::pass::FIRST, newScope);
+        unit::base subParserUnit(unit::pass::FIRST, newScope, currentUnit->inString);
         subParserUnit.factory();
 
         // Now we can write the parsed scope into the wrapper token
         currentWrapper->parsed = newScope;
+    }
+
+    void token::string::factory(unit::base* currentUnit, int32_t& startIndex) {
+        if (currentUnit->passIndex != unit::pass::FIRST) return;    // Parenthesis's aren't really dependant of anything else, so they can be one of the first to be parsed.
+
+        if (currentUnit->at<lexer::token::base>(startIndex)->get_type() != lexer::token::types::WRAPPER) return;
+
+        lexer::token::wrapper* currentWrapper = currentUnit->at<lexer::token::wrapper>(startIndex);
+
+        if (currentWrapper->parsed) return;
+
+        if (
+            currentWrapper->type != lexer::token::wrapper::types::CHARACTER && 
+            currentWrapper->type != lexer::token::wrapper::types::STRING
+        ) return; // Not a parenthesis type wrapper
+
+        token::string::base* newStringScope = new token::string::base(
+            token::info(
+                token::type::STRING,
+                currentWrapper->get_start(),
+                currentUnit->parent,
+                std::string("") + currentWrapper->identity
+            ),
+            currentWrapper->tokens
+        );
+
+        // This is done so that HEX pattern and escape pattern can do their job.
+        unit::base subParserUnit(unit::pass::FIRST, newStringScope, true);
+        subParserUnit.factory();
+
+        newStringScope->bakeTokensToString();
+
+        // Now we can write the parsed string
+        currentWrapper->parsed = newStringScope;
+    }
+
+    void token::string::base::bakeTokensToString() {
+        std::string result = "";
+        result += lexer::token::wrapper::getWrapperCondition(symbol[0]).first;
+
+        for (const auto& token : rawTokens) {
+            result += token->getData();
+        }
+
+        result += lexer::token::wrapper::getWrapperCondition(symbol[0]).second;
+
+        bakedString = result;
     }
 
     void token::context::factory(unit::base* currentUnit, int32_t& startIndex) {
