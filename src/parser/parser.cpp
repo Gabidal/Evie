@@ -688,7 +688,7 @@ namespace parser {
         if (
             currentWrapper->type != lexer::token::wrapper::types::CHARACTER && 
             currentWrapper->type != lexer::token::wrapper::types::STRING
-        ) return; // Not a parenthesis type wrapper
+        ) return; // Not a string type wrapper
 
         token::string::base* newStringScope = new token::string::base(
             token::info(
@@ -969,5 +969,49 @@ namespace parser {
         // Remove
         currentUnit->tokens.erase(currentUnit->tokens.begin() + nextTokens.min, currentUnit->tokens.begin() + nextTokens.max);
     
+    }
+
+    void token::includer::factory(unit::base* currentUnit, int32_t& startIndex) {
+        if (currentUnit->passIndex != unit::pass::SECOND) return;    // waits for string pattern to match
+        
+        /**
+         * Require:
+         * use "abc/efg.*"
+         * use 'abc/efg.*'
+         * include "abc/efg.*"
+         * include 'abc/efg.*'
+         */
+
+        if (currentUnit->at<lexer::token::base>(startIndex)->get_type() != lexer::token::types::TEXT) return;
+        if (currentUnit->at<lexer::token::base>(startIndex)->parsed) return;    // Keywords should have no parsed data.
+        
+        // Ensure it's a include symbol
+        std::string_view symbol = currentUnit->at<lexer::token::text>(startIndex)->data;
+        if (symbol != "use" && symbol != "include") return;
+
+        // Require strings to represent the include
+        if (startIndex + 1 >= (int32_t)currentUnit->tokens.size()) return;
+        if (currentUnit->at<lexer::token::base>(startIndex + 1)->get_type() != lexer::token::types::WRAPPER) return;
+        auto* currentWrapper = currentUnit->at<lexer::token::wrapper>(startIndex + 1);
+
+        if (
+            currentWrapper->type != lexer::token::wrapper::types::CHARACTER && 
+            currentWrapper->type != lexer::token::wrapper::types::STRING
+        ) return; // Not a string type wrapper
+
+        auto* location = dynamic_cast<token::string::base*>(currentWrapper->parsed);
+
+        if (!location) throw std::runtime_error("Include location is not a valid string.");
+
+        token::includer::base* newInclude = new token::includer::base(
+            token::info(
+                token::type::INCLUDE,
+                currentUnit->at<lexer::token::text>(startIndex)->get_start(),
+                currentUnit->parent,
+                currentUnit->at<lexer::token::text>(startIndex)->data
+            ),
+            location->bakedString,
+            includer::types::BEGIN
+        );
     }
 }

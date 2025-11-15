@@ -81,6 +81,7 @@ namespace parser {
             NUMBER,         // Any number in Real space
             CONDITION,      // If, elses
             LOOP,           // Loopers
+            INCLUDE,        // Represents all include pattern matchers 
         };
         
         namespace scope {
@@ -232,7 +233,7 @@ namespace parser {
             }
         }
 
-        // Represents callers, functions, classes, namespaces and more?
+        // Represents functions, classes, namespaces and more?
         class context : public token::definition::base {
         public:
             std::vector<scope::base*> wrappers; // <>[](){}
@@ -419,6 +420,23 @@ namespace parser {
                 return result;
             }
         };
+    
+        namespace includer {
+            enum class types {
+                BEGIN,  // Default, replaced via the inlined tokens
+                END,    // For each include the last token of the include tells Docker when to go back by one in working dir stack.
+            };
+
+            class base : public token::base {
+            public:
+                std::string_view location;  // fileName, git repo, URL, project with cmake or meson buildable files.
+                types includeType;
+
+                base(info Info, std::string_view Location, types IncludeType) : token::base(Info), location(Location), includeType(IncludeType) {}
+            };
+
+            static void factory(unit::base* /*Current Translation Unit State*/, int32_t& /*Start Index*/);
+        }
     }
 
 }
