@@ -23,7 +23,7 @@ namespace docker{
                 return nullptr;
             }
 
-            local::local(std::string_view file_name, args::base* env, bool needs_to_exist) : base(types::LOCAL) {
+            local::local(std::string_view file_name, [[maybe_unused]] args::base* env, bool needs_to_exist) : base(types::LOCAL) {
                 // extract from the string the path, name and the extension
                 size_t last_slash = file_name.find_last_of('/');
 
@@ -215,60 +215,60 @@ namespace docker{
 
             return result;
         }
-    
-        std::filesystem::path stack::consolidate(){
-            std::filesystem::path result;
+    }
 
-            for (auto dir : dirs) {
-                result += dir;
-            }
+    std::filesystem::path stack::consolidate() {
+        std::filesystem::path result;
 
-            return result;
+        for (auto dir : dirs) {
+            result += dir;
         }
-        
-        bool stack::contains(std::string_view fileName) {
-            // First we need to get the absolute path of the incoming file name
-            // For that we need to differentiate the handling to absolute fileName paths and relative paths-
-            // For relative paths we need to fetch the current dirs as consolidated path appended before the fileName to then convert to absolute path.
-            if (std::filesystem::path(fileName).is_absolute()) {
-                std::filesystem::path absPath = std::filesystem::absolute(fileName);
 
-                for (const auto& file : files) {
-                    if (file == absPath) {
-                        return true;
-                    }
-                }
-            } else {
-                std::filesystem::path consolidatedPath = consolidate();
-                std::filesystem::path absPath = std::filesystem::absolute(consolidatedPath / fileName);
+        return result;
+    }
+    
+    bool stack::contains(std::string_view fileName) {
+        // First we need to get the absolute path of the incoming file name
+        // For that we need to differentiate the handling to absolute fileName paths and relative paths-
+        // For relative paths we need to fetch the current dirs as consolidated path appended before the fileName to then convert to absolute path.
+        if (std::filesystem::path(fileName).is_absolute()) {
+            std::filesystem::path absPath = std::filesystem::absolute(fileName);
 
-                for (const auto& file : files) {
-                    if (file == absPath) {
-                        return true;
-                    }
+            for (const auto& file : files) {
+                if (file == absPath) {
+                    return true;
                 }
             }
+        } else {
+            std::filesystem::path consolidatedPath = consolidate();
+            std::filesystem::path absPath = std::filesystem::absolute(consolidatedPath / fileName);
 
-            return false;
-        }
-    
-        void stack::add(std::string_view pathAndFileName) {
-            // First let's check if the incoming file is already added
-            if (contains(pathAndFileName)) return; // No need to throw, because this way we enable multiple includes of files without breaking.
-
-            // Next we'll split the incoming into the relative path and the absolute file path
-            std::filesystem::path relativePath = std::filesystem::path(pathAndFileName).parent_path();
-            std::filesystem::path absoluteFilePath = std::filesystem::absolute(pathAndFileName);
-
-            files.push_back(absoluteFilePath);
-            dirs.push_back(relativePath.string());
-        }
-
-        void stack::pop() {
-            // Only remove the current relative dir stack, files are needed to be held for future comparisons.
-            if (!dirs.empty()) {
-                dirs.pop_back();
+            for (const auto& file : files) {
+                if (file == absPath) {
+                    return true;
+                }
             }
+        }
+
+        return false;
+    }
+
+    void stack::add(std::string_view pathAndFileName) {
+        // First let's check if the incoming file is already added
+        if (contains(pathAndFileName)) return; // No need to throw, because this way we enable multiple includes of files without breaking.
+
+        // Next we'll split the incoming into the relative path and the absolute file path
+        std::filesystem::path relativePath = std::filesystem::path(pathAndFileName).parent_path();
+        std::filesystem::path absoluteFilePath = std::filesystem::absolute(pathAndFileName);
+
+        files.push_back(absoluteFilePath);
+        dirs.push_back(relativePath.string());
+    }
+
+    void stack::pop() {
+        // Only remove the current relative dir stack, files are needed to be held for future comparisons.
+        if (!dirs.empty()) {
+            dirs.pop_back();
         }
     }
 }

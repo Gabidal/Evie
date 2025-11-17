@@ -92,6 +92,8 @@ namespace docker{
 
         std::filesystem::path consolidate();
 
+        stack() = default;
+
         bool contains(std::string_view fileName);
 
         void add(std::string_view pathAndFileName);

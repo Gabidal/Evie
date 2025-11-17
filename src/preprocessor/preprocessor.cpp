@@ -2,7 +2,7 @@
 
 void preprocessor::includer::factory(preprocessor::unit* currentUnit) {
 
-    for (int i = 0; i < currentUnit->currentScope->children.size(); i++) {
+    for (int i = 0; i < (int32_t)currentUnit->currentScope->children.size(); i++) {
         openInclude(currentUnit, i);
     }
 }
@@ -39,6 +39,7 @@ void preprocessor::includer::openInclude(preprocessor::unit* currentUnit, int32_
 
         // Now we need to call the parser on the inlined tokens with the other tokens
         parser::unit::base* subParser = new parser::unit::base(parser::unit::pass::FIRST, currentUnit->currentScope);
+        subParser->factory();
 
         index -= inlined.size();  // Tell the preprocessor to re-evaluate the current scope, since it's content has changed.
     }

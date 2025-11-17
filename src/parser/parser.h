@@ -435,7 +435,7 @@ namespace parser {
                 base(info Info, std::string_view Location, types IncludeType) : token::base(Info), source(Location), includeType(IncludeType) {}
             };
 
-            static void factory(unit::base* /*Current Translation Unit State*/, int32_t& /*Start Index*/);
+            extern void factory(unit::base* /*Current Translation Unit State*/, int32_t& /*Start Index*/);
         }
     }
 

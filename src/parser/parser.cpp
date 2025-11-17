@@ -15,6 +15,7 @@ namespace parser {
             // Consider here looping through subsets first and then range in them, to boost performance 999+
             // NOTE: if you decide to use subset traversal then you cannot remove mid loop exhausted tokens, so use reverse traversal!
             for (int32_t index = 0; index < (int32_t)tokens.size(); ++index) {
+                token::includer::factory(this, index);
 
                 token::definition::base::factory(this, index);
                 token::context::factory(this, index);   // Right after definition pattern
@@ -1013,5 +1014,7 @@ namespace parser {
             location->bakedString,
             includer::types::BEGIN
         );
+
+        currentUnit->at<lexer::token::text>(startIndex)->parsed = newInclude;
     }
 }
