@@ -30,8 +30,8 @@ namespace preprocessor {
     class unit {
     public:
         parser::token::scope::base* currentScope;
-
-
+        args::base* environment;
+        docker::stack* stack;
     };
 
     // Since including multifiles and stacked directories this needs to be more of a tool suite handling it.
@@ -40,10 +40,10 @@ namespace preprocessor {
         extern void factory(preprocessor::unit* currentUnit);
 
         // Inserts tokens from includeble files into the current scope tokens.
-        extern void openInclude(preprocessor::unit* currentUnit, int32_t index);
+        extern void openInclude(preprocessor::unit* currentUnit, int32_t& index);
 
         // Tells Docker that it is the end of the opened file tokens for Docker to be more folder context aware.
-        extern void closeInclude(preprocessor::unit* currentUnit, int32_t index);
+        extern void closeInclude(preprocessor::unit* currentUnit, int32_t& index);
 
     }
 

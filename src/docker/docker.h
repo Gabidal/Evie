@@ -5,6 +5,9 @@
 #include <string>
 #include <unordered_map>
 #include <functional>
+#include <filesystem>
+
+#include "../args/args.h"
 
 // prototype import of token base
 namespace lexer{
@@ -17,10 +20,6 @@ namespace docker{
 
     namespace file{
         namespace descriptor{
-
-            // TODO: replace this with the args implementation.
-            std::string store_remote_files = "";
-
             enum class types{
                 UNKNOWN,
                 LOCAL,
@@ -31,7 +30,7 @@ namespace docker{
             public:
                 types type;
 
-                static base* create(const std::string& file_name);
+                static base* create(const std::string_view file_name, args::base* env);
 
                 base(types descriptor_type) : type(descriptor_type) {}
             };
@@ -48,11 +47,11 @@ namespace docker{
 
                 std::vector<char> raw_buffer;
 
-                local(std::string file_name, bool needs_to_exist = true);
+                local(std::string_view file_name, args::base* env, bool needs_to_exist = true);
                 local() : base(types::LOCAL){};
 
                 // this will determine if the given buffer is compatible with local file path syntax
-                static bool is_compatible(std::string raw);
+                static bool is_compatible(std::string_view raw);
             };
 
             // used for remote files like HTTPS URLS and URIs
@@ -64,29 +63,41 @@ namespace docker{
                 std::string query;
                 std::string fragment;
 
-                remote(std::string url);
+                remote(std::string_view url, args::base* env);
 
                 // fetches the remote file and allocates points into it as if it was a local.
-                void localize();
+                void localize(args::base* env);
 
                 // this will determine if the given buffer is compatible with URL syntax
-                static bool is_compatible(std::string raw);
+                static bool is_compatible(std::string_view raw);
             };
 
         }
 
-        extern std::unordered_map<std::string, std::function<std::vector<lexer::token::base*>(descriptor::local)>> local_translators; 
-        extern std::unordered_map<std::string, std::function<std::vector<lexer::token::base*>(descriptor::remote)>> remote_translators; 
+        extern std::unordered_map<std::string_view, std::function<std::vector<lexer::token::base*>(descriptor::local)>> local_translators; 
+        extern std::unordered_map<std::string_view, std::function<std::vector<lexer::token::base*>(descriptor::remote)>> remote_translators; 
         
-        std::vector<lexer::token::base*> translate(std::string file_name);
+        extern std::vector<lexer::token::base*> translate(std::string_view file_name, args::base* env);
 
         // initializes all the translators and their respective handlers
-        void add_translators();
+        extern void add_translators();
 
-        std::vector<lexer::token::base*> translate_e_file(descriptor::local desc);
+        extern std::vector<lexer::token::base*> translate_e_file(descriptor::local desc);
     }
 
+    class stack {
+    public:
+        std::vector<std::string_view> dirs;
+        std::vector<std::filesystem::path> files;
 
+        std::filesystem::path consolidate();
+
+        bool contains(std::string_view fileName);
+
+        void add(std::string_view pathAndFileName);
+
+        void pop();
+    };
 
 }
 

@@ -429,10 +429,10 @@ namespace parser {
 
             class base : public token::base {
             public:
-                std::string_view location;  // fileName, git repo, URL, project with cmake or meson buildable files.
+                std::string_view source;  // fileName, git repo, URL, project with cmake or meson buildable files.
                 types includeType;
 
-                base(info Info, std::string_view Location, types IncludeType) : token::base(Info), location(Location), includeType(IncludeType) {}
+                base(info Info, std::string_view Location, types IncludeType) : token::base(Info), source(Location), includeType(IncludeType) {}
             };
 
             static void factory(unit::base* /*Current Translation Unit State*/, int32_t& /*Start Index*/);

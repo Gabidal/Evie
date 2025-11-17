@@ -41,6 +41,8 @@ namespace args {
         std::string hostArchitecture = "";
         std::string targetArchitecture = "";
 
+        std::string remoteStoredFile = "~/.remotes";
+
         AddressSpaces AddressSpace;
 
         base();
