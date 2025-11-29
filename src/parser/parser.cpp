@@ -161,7 +161,7 @@ namespace parser {
         // Definition class automatically handles everything it needs to, keep this accessor in case we need to do some higher level abstract thingies.
         [[maybe_unused]] token::definition::base* newDefinition = new token::definition::base(
             token::info(
-                token::type::DEFINITION,
+                token::types::DEFINITION,
                 name->get_start(),
                 currentUnit->parent,
                 name->data
@@ -196,7 +196,7 @@ namespace parser {
 
         token::object* newObject = new token::object(
             token::info(
-                token::type::OBJECT,
+                token::types::OBJECT,
                 currentText->get_start(),
                 currentUnit->parent,
                 currentText->data
@@ -214,7 +214,7 @@ namespace parser {
         if (auto currentNumber = currentUnit->at<lexer::token::number>(startIndex)) {
             token::number* newNumber = new token::number(
                 token::info(
-                    token::type::NUMBER,
+                    token::types::NUMBER,
                     currentNumber->get_start(),
                     currentUnit->parent,
                     currentNumber->text
@@ -226,6 +226,17 @@ namespace parser {
 
             if (!currentUnit->inString)
                 currentNumber->text = newNumber->getValue(); // Update lexer token text to match parser token value
+        }
+    }
+
+    lexer::token::number::types token::number::getProminentNumberType(lexer::token::number::types other) {
+        // int < float
+        if (numberType == lexer::token::number::types::FLOAT || other == lexer::token::number::types::FLOAT) {
+            return lexer::token::number::types::FLOAT;
+        } else if (numberType == lexer::token::number::types::HEX || other == lexer::token::number::types::HEX) {
+            throw std::runtime_error("Cannot compare HEX number type with other number types.");    // Hex values should have been transformed by now.
+        } else {
+            return lexer::token::number::types::INTEGER;
         }
     }
 
@@ -295,42 +306,42 @@ namespace parser {
         throw std::runtime_error("Failed to convert hex number to integer representation.");
     }
 
-    token::Operator::type token::Operator::toType(std::string_view symbol) {
+    token::Operator::types token::Operator::toType(std::string_view symbol) {
         if (symbol == ".") {
-            return token::Operator::type::FETCHER;
+            return token::Operator::types::FETCHER;
         } else if (fix::is(symbol)) {
-            return token::Operator::type::FIX;
+            return token::Operator::types::FIX;
         } else if (symbol == "*") {
-            return token::Operator::type::MULTIPLICATION;
+            return token::Operator::types::MULTIPLICATION;
         } else if (symbol == "/") {
-            return token::Operator::type::DIVISION;
+            return token::Operator::types::DIVISION;
         } else if (symbol == "%") {
-            return token::Operator::type::MODULO;
+            return token::Operator::types::MODULO;
         } else if (symbol == "+") {
-            return token::Operator::type::ADDITION;
+            return token::Operator::types::ADDITION;
         } else if (symbol == "-") {
-            return token::Operator::type::SUBTRACTION;
+            return token::Operator::types::SUBTRACTION;
         } else if (symbol == "<<") {
-            return token::Operator::type::BITSHIFT_LEFT;
+            return token::Operator::types::BITSHIFT_LEFT;
         } else if (symbol == ">>") {
-            return token::Operator::type::BITSHIFT_RIGHT;
+            return token::Operator::types::BITSHIFT_RIGHT;
         } else if (comparison::is(symbol)) {
-            return token::Operator::type::COMPARISON;
+            return token::Operator::types::COMPARISON;
         } else if (symbol == "&") {
-            return token::Operator::type::AND;
+            return token::Operator::types::AND;
         } else if (symbol == "¤") {
-            return token::Operator::type::XOR;
+            return token::Operator::types::XOR;
         } else if (symbol == "|") {
-            return token::Operator::type::OR;
+            return token::Operator::types::OR;
         } else if (symbol == "&&") {
-            return token::Operator::type::LOGICAL_AND;
+            return token::Operator::types::LOGICAL_AND;
         } else if (symbol == "||") {
-            return token::Operator::type::LOGICAL_OR;
+            return token::Operator::types::LOGICAL_OR;
         } else if (assign::is(symbol)) {
-            return token::Operator::type::ASSIGN;
+            return token::Operator::types::ASSIGN;
         }
         
-        return token::Operator::type::UNKNOWN;
+        return token::Operator::types::UNKNOWN;
     }
 
     bool token::Operator::fix::is(std::string_view symbol) {
@@ -347,6 +358,24 @@ namespace parser {
         }
 
         return false;
+    }
+
+    token::Operator::comparison::type token::Operator::comparison::getComparisonType(std::string_view symbol) {
+        if (symbol == "<") {
+            return token::Operator::comparison::type::LESS_THAN;
+        } else if (symbol == ">") {
+            return token::Operator::comparison::type::GREATER_THAN;
+        } else if (symbol == "<=") {
+            return token::Operator::comparison::type::LESS_EQUAL;
+        } else if (symbol == ">=") {
+            return token::Operator::comparison::type::GREATER_EQUAL;
+        } else if (symbol == "==") {
+            return token::Operator::comparison::type::EQUAL;
+        } else if (symbol == "!=") {
+            return token::Operator::comparison::type::NOT_EQUAL;
+        }
+
+        return token::Operator::comparison::type::UNKNOWN;
     }
 
     bool token::Operator::assign::is(std::string_view symbol) {
@@ -372,52 +401,52 @@ namespace parser {
 
         // '*' '/' '%'
         for (int32_t i = 0; i < (int32_t)currentUnit->tokens.size(); i++) {
-            token::Operator::base::combinator(currentUnit, i, token::Operator::type::MULTIPLICATION);
-            token::Operator::base::combinator(currentUnit, i, token::Operator::type::DIVISION);
-            token::Operator::base::combinator(currentUnit, i, token::Operator::type::MODULO);
+            token::Operator::base::combinator(currentUnit, i, token::Operator::types::MULTIPLICATION);
+            token::Operator::base::combinator(currentUnit, i, token::Operator::types::DIVISION);
+            token::Operator::base::combinator(currentUnit, i, token::Operator::types::MODULO);
         }
 
         // '+' '-'
         for (int32_t i = 0; i < (int32_t)currentUnit->tokens.size(); i++) {
-            token::Operator::base::combinator(currentUnit, i, token::Operator::type::ADDITION);
-            token::Operator::base::combinator(currentUnit, i, token::Operator::type::SUBTRACTION);
+            token::Operator::base::combinator(currentUnit, i, token::Operator::types::ADDITION);
+            token::Operator::base::combinator(currentUnit, i, token::Operator::types::SUBTRACTION);
         }
 
         // '<<' '>>'
         for (int32_t i = 0; i < (int32_t)currentUnit->tokens.size(); i++) {
-            token::Operator::base::combinator(currentUnit, i, token::Operator::type::BITSHIFT_LEFT);
-            token::Operator::base::combinator(currentUnit, i, token::Operator::type::BITSHIFT_RIGHT);
+            token::Operator::base::combinator(currentUnit, i, token::Operator::types::BITSHIFT_LEFT);
+            token::Operator::base::combinator(currentUnit, i, token::Operator::types::BITSHIFT_RIGHT);
         }
 
         // Comparisons: '<' '>' '<=' '>=' '==' '!='
         for (int32_t i = 0; i < (int32_t)currentUnit->tokens.size(); i++) {
-            token::Operator::base::combinator(currentUnit, i, token::Operator::type::COMPARISON);
+            token::Operator::base::combinator(currentUnit, i, token::Operator::types::COMPARISON);
         }
 
         // '&' '¤' '|'
         for (int32_t i = 0; i < (int32_t)currentUnit->tokens.size(); i++) {
-            token::Operator::base::combinator(currentUnit, i, token::Operator::type::AND);
-            token::Operator::base::combinator(currentUnit, i, token::Operator::type::XOR);
-            token::Operator::base::combinator(currentUnit, i, token::Operator::type::OR);
+            token::Operator::base::combinator(currentUnit, i, token::Operator::types::AND);
+            token::Operator::base::combinator(currentUnit, i, token::Operator::types::XOR);
+            token::Operator::base::combinator(currentUnit, i, token::Operator::types::OR);
         }
 
         // '&&'
         for (int32_t i = 0; i < (int32_t)currentUnit->tokens.size(); i++) {
-            token::Operator::base::combinator(currentUnit, i, token::Operator::type::LOGICAL_AND);
+            token::Operator::base::combinator(currentUnit, i, token::Operator::types::LOGICAL_AND);
         }
 
         // '||'
         for (int32_t i = 0; i < (int32_t)currentUnit->tokens.size(); i++) {
-            token::Operator::base::combinator(currentUnit, i, token::Operator::type::LOGICAL_OR);
+            token::Operator::base::combinator(currentUnit, i, token::Operator::types::LOGICAL_OR);
         }
 
         // Assignments
         for (int32_t i = 0; i < (int32_t)currentUnit->tokens.size(); i++) {
-            token::Operator::base::combinator(currentUnit, i, token::Operator::type::ASSIGN);
+            token::Operator::base::combinator(currentUnit, i, token::Operator::types::ASSIGN);
         }
     }
 
-    void token::Operator::base::combinator(unit::base* currentUnit, int32_t& i, token::Operator::type t) {
+    void token::Operator::base::combinator(unit::base* currentUnit, int32_t& i, token::Operator::types t) {
         // Checks if the current token is a operator token type, if so it needs to be accommodated.
         if (currentUnit->at<lexer::token::base>(i)->get_type() != lexer::token::types::OPERATOR) return;
 
@@ -437,7 +466,7 @@ namespace parser {
         // Now we have all the criteria met to construct a combinator operator:
         token::Operator::base* newOperator = new token::Operator::base(
             token::info(
-                token::type::OPERATOR,
+                token::types::OPERATOR,
                 currentOperator->get_start(),
                 currentUnit->parent,
                 currentOperator->text
@@ -463,7 +492,7 @@ namespace parser {
 
         // Checks if the current token is a operator token type, if so it needs to be accommodated.
         if (currentUnit->at<lexer::token::base>(i)->get_type() != lexer::token::types::OPERATOR) return;
-        if (toType(currentUnit->at<lexer::token::op>(i)->text) != token::Operator::type::FETCHER) return;
+        if (toType(currentUnit->at<lexer::token::op>(i)->text) != token::Operator::types::FETCHER) return;
 
         lexer::token::op* currentOperator = currentUnit->at<lexer::token::op>(i);
         if (currentOperator->parsed) return;
@@ -475,7 +504,7 @@ namespace parser {
 
         token::definition::base* closestFetcherDefinition;
 
-        if (left->flags == token::type::OPERATOR) {     // a.b.c -> <a.b>.c
+        if (left->type == token::types::OPERATOR) {     // a.b.c -> <a.b>.c
             // Now we can take from left->right->baked_definition->search(right->symbol)
             token::Operator::base* leftOperator = dynamic_cast<token::Operator::base*>(left);
             if (!leftOperator) throw std::runtime_error("Internal parser error: failed to cast left operand to operator type in fetcher combinator.");
@@ -489,7 +518,7 @@ namespace parser {
 
             closestFetcherDefinition = bakedDefinition;
         }
-        else if (left->flags == token::type::OBJECT || left->flags == token::type::CALLER){   // a.b | a().b
+        else if (left->type == token::types::OBJECT || left->type == token::types::CALLER){   // a.b | a().b
             token::object* leftObject = dynamic_cast<token::object*>(left);
             if (!leftObject) throw std::runtime_error("Internal parser error: failed to cast left operand to object type in fetcher combinator.");
 
@@ -525,7 +554,7 @@ namespace parser {
                 // Let's make a object token from the fetched definition:
                 token::object* fetchedObject = new token::object(
                     token::info(
-                        token::type::OBJECT,
+                        token::types::OBJECT,
                         rightSide->get_start(),
                         currentUnit->parent,
                         rightSide->data
@@ -536,12 +565,12 @@ namespace parser {
                 // Now we can construct the fetcher operator:
                 token::Operator::base* newFetcherOperator = new token::Operator::base(
                     token::info(
-                        token::type::OPERATOR,
+                        token::types::OPERATOR,
                         currentOperator->get_start(),
                         currentUnit->parent,
                         currentOperator->text
                     ),
-                    token::Operator::type::FETCHER,
+                    token::Operator::types::FETCHER,
                     left,
                     fetchedObject
                 );
@@ -602,7 +631,7 @@ namespace parser {
         // Now we have all the criteria met to construct a fix operator:
         token::Operator::fix::base* newFixOperator = new token::Operator::fix::base(
             token::info(
-                token::type::OPERATOR,
+                token::types::OPERATOR,
                 currentOperator->get_start(),
                 currentUnit->parent,
                 currentOperator->text
@@ -653,7 +682,7 @@ namespace parser {
             lexer::token::wrapper* priorWrapper = currentUnit->at<lexer::token::wrapper>(startIndex - 1);
 
             // Check if prior wrapper is parsed and is a scope, since we do this for each wrapper all prior i-n scopes are already set
-            if (priorWrapper->parsed && priorWrapper->parsed->flags == token::type::SCOPE) {
+            if (priorWrapper->parsed && priorWrapper->parsed->type == token::types::SCOPE) {
                 contextualParent = static_cast<token::scope::base*>(priorWrapper->parsed);
             }
         }
@@ -661,7 +690,7 @@ namespace parser {
         // First we need to create an local scope to give to our sub-parser
         token::scope::base* newScope = new token::scope::base(
             token::info(
-                token::type::SCOPE,
+                token::types::SCOPE,
                 currentWrapper->get_start(),
                 contextualParent,
                 std::string("") + currentWrapper->identity
@@ -693,7 +722,7 @@ namespace parser {
 
         token::string::base* newStringScope = new token::string::base(
             token::info(
-                token::type::STRING,
+                token::types::STRING,
                 currentWrapper->get_start(),
                 currentUnit->parent,
                 std::string("") + currentWrapper->identity
@@ -867,15 +896,46 @@ namespace parser {
         }
         else return;
 
+        // Since for generalization and for ease of use for the end user, we need to wrap the header and body with a context if they are not a context tokens already.
+        if (header && header->type != token::types::SCOPE) {
+            token::scope::base* headerscope = new token::scope::base(
+                token::info(
+                    token::types::SCOPE,
+                    header->position,
+                    header->parent,
+                    "condition_header_" + std::to_string(header->position.y) + "_" + std::to_string(header->position.x)
+                ),
+                {}
+            );
+
+            headerscope->children.push_back(header);
+            header = headerscope;
+        }
+
+        if (body && body->type != token::types::SCOPE) {
+            token::scope::base* bodyscope = new token::scope::base(
+                token::info(
+                    token::types::SCOPE,
+                    body->position,
+                    body->parent,
+                    "condition_body_" + std::to_string(body->position.y) + "_" + std::to_string(body->position.x)
+                ),
+                {}
+            );
+
+            bodyscope->children.push_back(body);
+            body = bodyscope;
+        }
+
         token::condition* newCondition = new token::condition(
             token::info(
-                token::type::CONDITION,
+                token::types::CONDITION,
                 currentUnit->at<lexer::token::text>(startIndex)->get_start(),
                 currentUnit->parent,
                 currentUnit->at<lexer::token::text>(startIndex)->data
             ),
-            header,
-            body
+            dynamic_cast<token::scope::base*>(header),
+            dynamic_cast<token::scope::base*>(body)
         );
 
         currentUnit->at<lexer::token::text>(startIndex)->parsed = newCondition;
@@ -954,7 +1014,7 @@ namespace parser {
 
         token::looper* newLooper = new token::looper(
             token::info(
-                token::type::LOOP,
+                token::types::LOOP,
                 currentUnit->at<lexer::token::text>(startIndex)->get_start(),
                 currentUnit->parent,
                 currentUnit->at<lexer::token::text>(startIndex)->data
@@ -1006,7 +1066,7 @@ namespace parser {
 
         token::includer::base* newInclude = new token::includer::base(
             token::info(
-                token::type::INCLUDE,
+                token::types::INCLUDE,
                 currentUnit->at<lexer::token::text>(startIndex)->get_start(),
                 currentUnit->parent,
                 currentUnit->at<lexer::token::text>(startIndex)->data

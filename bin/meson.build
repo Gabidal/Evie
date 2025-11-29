@@ -29,6 +29,7 @@ lib_sources = [
   '../src/lexer/lexer.cpp',
   '../src/parser/parser.cpp',
   '../src/preprocessor/preprocessor.cpp',
+  '../src/utils/utils.cpp',
 ]
 
 # Use Meson's buildtype instead of a custom TYPE variable

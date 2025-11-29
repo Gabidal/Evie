@@ -107,6 +107,33 @@ namespace utils {
         // Used by for loops
         void operator++() { ++min; ++max; }
     };
+
+    class link;
+
+    class linkable {
+    protected:
+        linkable* sibling = nullptr;
+    public:
+
+        linkable() = default;
+        virtual ~linkable();
+
+        void connect(linkable* other);
+        void disconnect();
+        
+        // Helper to get the partner safely
+        linkable* getConnected() const { return sibling; }
+    };
+
+    enum class boolToInt {
+        FALSE = 0,
+        TRUE = 1
+    };
+
+    namespace boolToString {
+        constexpr const char* FALSE = "0";
+        constexpr const char* TRUE  = "1";
+    };
 }
 
 // Auto un-namespace locked utilities:

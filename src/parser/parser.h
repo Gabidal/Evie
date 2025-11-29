@@ -9,6 +9,8 @@
 #include "../lexer/lexer.h"
 
 #include <string>
+#include <new>
+#include <utility>
 
 namespace parser {
 
@@ -69,7 +71,7 @@ namespace parser {
     namespace token {
         
         // Un-ordered
-        enum class type {
+        enum class types {
             UNKNOWN,        // ???
             COMMENT,        // #...\n
             DEFINITION,     // Any instance of two or more words. Removes the inherited words and makes the last word an Object type node.
@@ -88,14 +90,15 @@ namespace parser {
             class base;
         }
 
-        class base {
+        class base : public utils::linkable {
         public:
-            type flags;
+            types type;
             lexer::token::position position;
-            scope::base* parent;
+            scope::base* parent;    // Scope context, for local definition find order.
             std::string_view symbol;
+            token::base* contextParent;   // For operators and non-scope parents.
 
-            base(type Flags, lexer::token::position Position = {0, 0, 0}, scope::base* Parent = nullptr, std::string_view Symbol = "") : flags(Flags), position(Position), parent(Parent), symbol(Symbol) {}
+            base(types Flags, lexer::token::position Position = {0, 0, 0}, scope::base* Parent = nullptr, std::string_view Symbol = "", token::base* Context = nullptr) : linkable(), type(Flags), position(Position), parent(Parent), symbol(Symbol), contextParent(Context) {}
 
             virtual ~base() = default;  // For our fallen comrades 🥀🥀🥀 smh tsm
 
@@ -112,6 +115,9 @@ namespace parser {
             virtual std::string getValue() {
                 return std::string(symbol);
             }
+
+            // By default no operation since a normal token does not hold any matchable objects.
+            virtual void replace(token::base* /* Match */, token::base* /* Source */) {}    // Does nothing.
         };
 
         // If we use this we can use it with no need to worry about slicing, although just using token::base as info packet is also fine tbh 🙄
@@ -177,6 +183,8 @@ namespace parser {
                 return value;
             }
 
+            lexer::token::number::types getProminentNumberType(lexer::token::number::types other);
+
         private:
             void determineSize();
 
@@ -204,6 +212,20 @@ namespace parser {
 
                     // Pipe to parent scope
                     return parent ? parent->findClosestDefinition(Symbol) : nullptr;
+                }
+
+                void replace(token::base* match, token::base* source) override {
+                    for (auto& def : definitions) {
+                        if (def == match) {
+                            def = source;
+                        }
+                    }
+                    
+                    for (auto& child : children) {
+                        if (child == match) {
+                            child = source;
+                        }
+                    }
                 }
             };
 
@@ -240,6 +262,9 @@ namespace parser {
 
             context(token::definition::base Info, std::vector<scope::base*> Contexts = {}) : token::definition::base(Info), wrappers(Contexts) {
                 definitionType = token::definition::types::CONTEXT;
+                for (auto& wrapper : wrappers) {
+                    if (wrapper) wrapper->contextParent = this;
+                }
             }
 
             [[nodiscard]] token::base* findClosestDefinition(std::string_view Symbol) override {
@@ -252,6 +277,17 @@ namespace parser {
             }
             
             static void factory(unit::base* /*Current Translation Unit State*/, int32_t& /*Start Index*/);   
+
+            void replace(token::base* match, token::base* source) override {
+                for (auto& wrapper : wrappers) {
+                    if (wrapper == match) {
+                        // We assume source is also a scope::base* if it replaces a wrapper
+                        if (auto* casted = dynamic_cast<scope::base*>(source)) {
+                            wrapper = casted;
+                        }
+                    }
+                }
+            }
         };
 
         class caller : public token::object {
@@ -259,16 +295,29 @@ namespace parser {
             std::vector<scope::base*> parameters; // <>[]()
 
             caller(info Info, definition::base* ref, std::vector<scope::base*> Contexts = {}) : token::object(Info, ref), parameters(Contexts) {
-                flags = type::CALLER;
+                type = types::CALLER;
+                for (auto& param : parameters) {
+                    if (param) param->contextParent = this;
+                }
             }
 
             static void factory(unit::base* /*Current Translation Unit State*/, int32_t& /*Start Index*/);
+
+            void replace(token::base* match, token::base* source) override {
+                for (auto& param : parameters) {
+                    if (param == match) {
+                        if (auto* casted = dynamic_cast<scope::base*>(source)) {
+                            param = casted;
+                        }
+                    }
+                }
+            }
         };
 
         namespace Operator {
 
             // Ordered via the order of combination
-            enum class type {
+            enum class types {
                 UNKNOWN,            // ???
                 FETCHER,            // .        <- This works same for scopes and member fetchers.
                 FIX,                // Abstract type for the prefix operator subset.
@@ -288,20 +337,32 @@ namespace parser {
                 ASSIGN,             // Abstract type for all assignment operators.
             };
 
-            type toType(std::string_view symbol);
+            types toType(std::string_view symbol);
 
             class base : public token::base {
             public:
-                type operationType;
+                types operationType;
                 // By default an operator combines two nodes next to it.
                 token::base* left;
                 token::base* right;
 
-                base(info Info, type Type, token::base* Left, token::base* Right) : token::base(Info), operationType(Type), left(Left), right(Right) {}
+                base(info Info, types Type, token::base* Left, token::base* Right) : token::base(Info), operationType(Type), left(Left), right(Right) {
+                    if (Left) Left->contextParent = this;
+                    if (Right) Right->contextParent = this;
+                }
 
                 static void factory(unit::base* /*Current Translation Unit State*/);
             
-                static void combinator(unit::base* /*Current Translation Unit State*/, int32_t& /*Current Index*/, type /*Focused Type*/);
+                static void combinator(unit::base* /*Current Translation Unit State*/, int32_t& /*Current Index*/, types /*Focused Type*/);
+
+                void replace(token::base* match, token::base* source) override {
+                    if (left == match) {
+                        left = source;
+                    }
+                    if (right == match) {
+                        right = source;
+                    }
+                }
             };
 
             namespace fetcher {
@@ -324,9 +385,17 @@ namespace parser {
                     fix::type fixity;
                     token::base* operand;
                     
-                    base(info Info, token::base* Operand, fix::type postOrPre) : token::base(Info), fixity(postOrPre), operand(Operand) {}
+                    base(info Info, token::base* Operand, fix::type postOrPre) : token::base(Info), fixity(postOrPre), operand(Operand) {
+                        if (Operand) Operand->contextParent = this;
+                    }
 
                     static void combinator(unit::base* /*Current Translation Unit State*/, int32_t& /*Current Index*/);
+
+                    void replace(token::base* match, token::base* source) override {
+                        if (operand == match) {
+                            operand = source;
+                        }
+                    }
                 };
 
             }
@@ -346,6 +415,7 @@ namespace parser {
 
                 bool is(std::string_view symbol);
 
+                type getComparisonType(std::string_view symbol);
             }
 
             namespace assign {
@@ -372,10 +442,13 @@ namespace parser {
     
         class condition : public token::base {
         public:
-            token::base* header;
-            token::base* body;
+            token::scope::base* header;
+            token::scope::base* body;
 
-            condition(info Info, token::base* Header, token::base* Body) : token::base(Info), header(Header), body(Body) {}
+            condition(info Info, token::scope::base* Header, token::scope::base* Body) : token::base(Info), header(Header), body(Body) {
+                if (header) header->contextParent = this;
+                if (body) body->contextParent = this;
+            }
 
             static void factory(unit::base* /*Current Translation Unit State*/, int32_t& /*Start Index*/);
 
@@ -392,6 +465,11 @@ namespace parser {
 
                 return result;
             }
+
+            void replace(token::base* match, token::base* source) override {
+                if (header == match) header = dynamic_cast<token::scope::base*>(source);
+                if (body == match) body = dynamic_cast<token::scope::base*>(source);
+            }
         };
 
         class looper : public token::base {
@@ -402,7 +480,12 @@ namespace parser {
 
             token::base* body;
 
-            looper(info Info, token::base* Init, token::base* Condition, token::base* Footer, token::base* Body) : token::base(Info), init(Init), condition(Condition), footer(Footer), body(Body) {}
+            looper(info Info, token::base* Init, token::base* Condition, token::base* Footer, token::base* Body) : token::base(Info), init(Init), condition(Condition), footer(Footer), body(Body) {
+                if (init) init->contextParent = this;
+                if (condition) condition->contextParent = this;
+                if (footer) footer->contextParent = this;
+                if (body) body->contextParent = this;
+            }
 
             static void factory(unit::base* /*Current Translation Unit State*/, int32_t& /*Start Index*/);
 
@@ -418,6 +501,13 @@ namespace parser {
                 }
 
                 return result;
+            }
+
+            void replace(token::base* match, token::base* source) override {
+                if (init == match) init = source;
+                if (condition == match) condition = source;
+                if (footer == match) footer = source;
+                if (body == match) body = source;
             }
         };
     
@@ -436,6 +526,18 @@ namespace parser {
             };
 
             extern void factory(unit::base* /*Current Translation Unit State*/, int32_t& /*Start Index*/);
+        }
+    }
+
+    // static utilities:
+    namespace token {
+        template<typename Target, typename Source>
+        static void replace(Target* target, Source* source) {
+            if (target->contextParent) target->contextParent->replace(target, source);
+
+            source->contextParent = target->contextParent;
+
+            delete target;
         }
     }
 

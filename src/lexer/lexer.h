@@ -26,7 +26,31 @@ namespace lexer{
             unsigned short y;       // represents the line number
             unsigned short file_id; // points to an offset for docked files.
 
-            position(unsigned short x_value, unsigned short y_value, unsigned short file_id_value) : x(x_value), y(y_value), file_id(file_id_value) {}
+            position(unsigned short x_value = 0, unsigned short y_value = 0, unsigned short file_id_value = 0) : x(x_value), y(y_value), file_id(file_id_value) {}
+
+            bool operator==(const position& other) const noexcept {
+                return x == other.x && y == other.y && file_id == other.file_id;
+            }
+
+            bool operator<(const position& other) const noexcept {
+                if (file_id != other.file_id) return file_id < other.file_id;
+                if (y != other.y) return y < other.y;
+                return x < other.x;
+            }
+
+            bool operator<=(const position& other) const noexcept {
+                return *this < other || *this == other;
+            }
+
+            bool operator>(const position& other) const noexcept {
+                return !(*this <= other);
+            }
+
+            bool operator>=(const position& other) const noexcept {
+                return !(*this < other);
+            }
+
+            
         };
 
         enum class types{
