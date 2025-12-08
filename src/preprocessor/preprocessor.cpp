@@ -175,131 +175,169 @@ void preprocessor::solver::interpreter::evaluate(parser::token::base* token) {
 
 template<typename T>
 std::string templatedIntAndFloatEvaluator(T leftValue, T rightValue, parser::token::Operator::base* operation) {
-    T finalValue;
-
-    // For boolean returning operations
-    utils::boolToInt intermediateFinalValue;
+    std::string finalValue;
 
     switch (operation->operationType) {
         case parser::token::Operator::types::MULTIPLICATION:
-            finalValue = leftValue * rightValue;
+            finalValue = std::to_string(leftValue * rightValue);
             break;
         case parser::token::Operator::types::DIVISION:
             if (rightValue == 0) throw std::runtime_error("Division by zero in compile-time evaluation.");
-            finalValue = leftValue / rightValue;
+            finalValue = std::to_string(leftValue / rightValue);
             break;
         case parser::token::Operator::types::MODULO:
             if constexpr (std::is_integral<T>::value) {
                 if (rightValue == 0) throw std::runtime_error("Modulo by zero in compile-time evaluation.");
-                finalValue = leftValue % rightValue;
+                finalValue = std::to_string(leftValue % rightValue);
             } else {
                 throw std::runtime_error("Modulo operator is not defined for floating point numbers in compile-time evaluation.");
             }
             break;
         case parser::token::Operator::types::ADDITION:
-            finalValue = leftValue + rightValue;
+            finalValue = std::to_string(leftValue + rightValue);
             break;
         case parser::token::Operator::types::SUBTRACTION:
-            finalValue = leftValue - rightValue;
+            finalValue = std::to_string(leftValue - rightValue);
             break;
         case parser::token::Operator::types::BITSHIFT_LEFT:
             if constexpr (std::is_integral<T>::value) {
-                finalValue = leftValue << rightValue;
+                finalValue = std::to_string(leftValue << rightValue);
             } else {
                 throw std::runtime_error("Bitshift operators are not defined for floating point numbers in compile-time evaluation.");
             }
             break;
         case parser::token::Operator::types::BITSHIFT_RIGHT:
             if constexpr (std::is_integral<T>::value) {
-                finalValue = leftValue >> rightValue;
+                finalValue = std::to_string(leftValue >> rightValue);
             } else {
                 throw std::runtime_error("Bitshift operators are not defined for floating point numbers in compile-time evaluation.");
             }
             break;
-        case parser::token::Operator::types::COMPARISON:
-
-            switch (parser::token::Operator::comparison::getComparisonType(operation->symbol)) {
-                case parser::token::Operator::comparison::type::LESS_THAN:
-                    intermediateFinalValue = (leftValue < rightValue) ? utils::boolToInt::TRUE : utils::boolToInt::FALSE;
-                    break;
-                case parser::token::Operator::comparison::type::GREATER_THAN:
-                    intermediateFinalValue = (leftValue > rightValue) ? utils::boolToInt::TRUE : utils::boolToInt::FALSE;
-                    break;
-                case parser::token::Operator::comparison::type::LESS_EQUAL:
-                    intermediateFinalValue = (leftValue <= rightValue) ? utils::boolToInt::TRUE : utils::boolToInt::FALSE;
-                    break;
-                case parser::token::Operator::comparison::type::GREATER_EQUAL:
-                    intermediateFinalValue = (leftValue >= rightValue) ? utils::boolToInt::TRUE : utils::boolToInt::FALSE;
-                    break;
-                case parser::token::Operator::comparison::type::EQUAL:
-                    intermediateFinalValue = (leftValue == rightValue) ? utils::boolToInt::TRUE : utils::boolToInt::FALSE;
-                    break;
-                case parser::token::Operator::comparison::type::NOT_EQUAL:
-                    intermediateFinalValue = (leftValue != rightValue) ? utils::boolToInt::TRUE : utils::boolToInt::FALSE;
-                    break;
-                default:
-                    break;
-            }
-            
-            // This will cause trues to become 1.0 instead of just 1.
-            finalValue = static_cast<T>(static_cast<int>(intermediateFinalValue));
-            break;
         case parser::token::Operator::types::AND:
             if constexpr (std::is_integral<T>::value) {
-                finalValue = leftValue & rightValue;
+                finalValue = std::to_string(leftValue & rightValue);
             } else {
                 throw std::runtime_error("Bitwise AND operator is not defined for floating point numbers in compile-time evaluation.");
             }
             break;
         case parser::token::Operator::types::XOR:
             if constexpr (std::is_integral<T>::value) {
-                finalValue = leftValue ^ rightValue;
+                finalValue = std::to_string(leftValue ^ rightValue);
             } else {
                 throw std::runtime_error("Bitwise XOR operator is not defined for floating point numbers in compile-time evaluation.");
             }
             break;
         case parser::token::Operator::types::OR:
             if constexpr (std::is_integral<T>::value) {
-                finalValue = leftValue | rightValue;
+                finalValue = std::to_string(leftValue | rightValue);
             } else {
                 throw std::runtime_error("Bitwise OR operator is not defined for floating point numbers in compile-time evaluation.");
             }
             break;
-        case parser::token::Operator::types::LOGICAL_AND:
-            intermediateFinalValue = (leftValue && rightValue) ? utils::boolToInt::TRUE : utils::boolToInt::FALSE;
-            finalValue = static_cast<T>(static_cast<int>(intermediateFinalValue));
-            break;
-        case parser::token::Operator::types::LOGICAL_OR:
-            intermediateFinalValue = (leftValue || rightValue) ? utils::boolToInt::TRUE : utils::boolToInt::FALSE;
-            finalValue = static_cast<T>(static_cast<int>(intermediateFinalValue));
-            break;
-        // No need for assigns, since you cant really assign into a number, can you now?
+        // No need for compare and assign operators!!!
         default:
             throw std::runtime_error("Unsupported operator type for number evaluation in compile-time interpreter.");
             break;
     }
 
-    // Since the template already has the actual type we dont need to split this into float and int conversions.
-    std::string resultValue = std::to_string(finalValue);
+    return finalValue;
+}
 
-    return resultValue;
+template<typename L, typename R>
+std::string templatedIntAndFloatEvaluatorForBooleanOperators(L leftValue, R rightValue, parser::token::Operator::base* operation) {
+    std::string finalValue;
+
+    // For boolean returning operations
+    bool intermediateFinalValue;
+
+    switch (operation->operationType) {
+        case parser::token::Operator::types::COMPARISON:
+
+            switch (parser::token::Operator::comparison::getComparisonType(operation->symbol)) {
+                case parser::token::Operator::comparison::type::LESS_THAN:
+                    intermediateFinalValue = (leftValue < rightValue);
+                    break;
+                case parser::token::Operator::comparison::type::GREATER_THAN:
+                    intermediateFinalValue = (leftValue > rightValue);
+                    break;
+                case parser::token::Operator::comparison::type::LESS_EQUAL:
+                    intermediateFinalValue = (leftValue <= rightValue);
+                    break;
+                case parser::token::Operator::comparison::type::GREATER_EQUAL:
+                    intermediateFinalValue = (leftValue >= rightValue);
+                    break;
+                case parser::token::Operator::comparison::type::EQUAL:
+                    intermediateFinalValue = (leftValue == rightValue);
+                    break;
+                case parser::token::Operator::comparison::type::NOT_EQUAL:
+                    intermediateFinalValue = (leftValue != rightValue);
+                    break;
+                default:
+                    break;
+            }
+            
+            // Convert the boolean to true/false as a string
+            finalValue = intermediateFinalValue ? utils::boolToString::TRUE : utils::boolToString::FALSE;
+            break;
+        case parser::token::Operator::types::LOGICAL_AND:
+            intermediateFinalValue = leftValue && rightValue;
+            finalValue = intermediateFinalValue ? utils::boolToString::TRUE : utils::boolToString::FALSE;
+            break;
+        case parser::token::Operator::types::LOGICAL_OR:
+            intermediateFinalValue = leftValue || rightValue;
+            finalValue = intermediateFinalValue ? utils::boolToString::TRUE : utils::boolToString::FALSE;
+            break;
+        // Only for compare operators, no other operator should be here!
+        default:
+            throw std::runtime_error("Unsupported operator type for number evaluation in compile-time interpreter.");
+            break;
+    }
+
+    return finalValue;
 }
 
 parser::token::number* preprocessor::solver::interpreter::evaluate(parser::token::number* left, parser::token::number* right, parser::token::Operator::base* operation) {
-    lexer::token::number::types prominentNumberType = left->getProminentNumberType(right->numberType);
+    lexer::token::number::types prominentNumberType = left->getProminentNumberType(right->numberType, operation->operationType);
     std::string resultValue;
 
     // If 1.0 and other small floats suddenly start acting weird, we need to constraint them via this.
     [[maybe_unused]] uint8_t maxBitSize = std::max(left->minRequiredByteSize, right->minRequiredByteSize);
 
     if (prominentNumberType == lexer::token::number::types::INTEGER) {
-        int64_t leftVal = static_cast<int64_t>(std::stoll(left->value));
-        int64_t rightVal = static_cast<int64_t>(std::stoll(right->value));
+        int64_t leftVal = left->getValueWithBooleanOverrideAsNumber<int64_t>();
+        int64_t rightVal = right->getValueWithBooleanOverrideAsNumber<int64_t>();
         resultValue = templatedIntAndFloatEvaluator<int64_t>(leftVal, rightVal, operation);
     } else if (prominentNumberType == lexer::token::number::types::FLOAT) {
-        double leftVal = std::stod(left->value);
-        double rightVal = std::stod(right->value);
+        double leftVal = left->getValueWithBooleanOverrideAsNumber<double>();
+        double rightVal = right->getValueWithBooleanOverrideAsNumber<double>();
         resultValue = templatedIntAndFloatEvaluator<double>(leftVal, rightVal, operation);
+    } else if (prominentNumberType == lexer::token::number::types::BOOLEAN) {
+        // Helper to dispatch based on type combinations
+        auto evaluateBoolean = [&](auto leftVal, parser::token::number* rightAsUnknown) {
+            if (rightAsUnknown->numberType == lexer::token::number::types::BOOLEAN) {
+                bool rightVal = (rightAsUnknown->value == utils::boolToString::TRUE);
+                return templatedIntAndFloatEvaluatorForBooleanOperators(leftVal, rightVal, operation); 
+            } else if (rightAsUnknown->numberType == lexer::token::number::types::INTEGER) {
+                int64_t rightVal = rightAsUnknown->getValueWithBooleanOverrideAsNumber<int64_t>();  // No need to worry about boolean override, since it literally isn't a boolean.
+                return templatedIntAndFloatEvaluatorForBooleanOperators(leftVal, rightVal, operation);
+            } else if (rightAsUnknown->numberType == lexer::token::number::types::FLOAT) {
+                double rightVal = rightAsUnknown->getValueWithBooleanOverrideAsNumber<double>();    // No need to worry about boolean override, since it literally isn't a boolean.
+                return templatedIntAndFloatEvaluatorForBooleanOperators(leftVal, rightVal, operation);
+            } else {
+                throw std::runtime_error("Unsupported number type for boolean operation evaluation.");
+            }
+        };
+
+        if (left->numberType == lexer::token::number::types::BOOLEAN) {
+            bool leftVal = (left->value == utils::boolToString::TRUE);
+            resultValue = evaluateBoolean(leftVal, right);
+        } else if (left->numberType == lexer::token::number::types::INTEGER) {
+            int64_t leftVal = left->getValueWithBooleanOverrideAsNumber<int64_t>();  // No need to worry about boolean override, since it literally isn't a boolean.
+            resultValue = evaluateBoolean(leftVal, right);
+        } else if (left->numberType == lexer::token::number::types::FLOAT) {
+            double leftVal = left->getValueWithBooleanOverrideAsNumber<double>();    // No need to worry about boolean override, since it literally isn't a boolean.
+            resultValue = evaluateBoolean(leftVal, right);
+        }
     } else {
         throw std::runtime_error("HEX number type should not appear in compile-time evaluation.");
     }

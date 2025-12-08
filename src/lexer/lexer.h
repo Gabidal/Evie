@@ -135,7 +135,8 @@ namespace lexer{
             enum class types{
                 INTEGER,
                 FLOAT,
-                HEX
+                HEX,
+                BOOLEAN
             } number_type;
 
             number(position start_position, const std::string& text_value) : base(start_position, token::types::NUMBER), text(text_value) {

@@ -131,8 +131,8 @@ namespace utils {
     };
 
     namespace boolToString {
-        constexpr const char* FALSE = "0";
-        constexpr const char* TRUE  = "1";
+        constexpr const char* FALSE = "false";
+        constexpr const char* TRUE  = "true";
     };
 }
 

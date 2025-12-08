@@ -2,6 +2,8 @@
 #include <charconv>
 #include <limits>
 #include <cfloat>
+#include <iostream>
+
 
 namespace parser {
 
@@ -226,10 +228,34 @@ namespace parser {
 
             if (!currentUnit->inString)
                 currentNumber->text = newNumber->getValue(); // Update lexer token text to match parser token value
+        } else if (auto currentBoolean = currentUnit->at<lexer::token::text>(startIndex)) {
+            if (currentBoolean->data == "true" || currentBoolean->data == "false") {
+                token::number* newNumber = new token::number(
+                    token::info(
+                        token::types::NUMBER,
+                        currentBoolean->get_start(),
+                        currentUnit->parent,
+                        currentBoolean->data
+                    ),
+                    currentBoolean->data
+                );
+
+                currentBoolean->parsed = newNumber;
+
+                if (!currentUnit->inString)
+                    currentBoolean->data = newNumber->getValue(); // Update lexer token text to match parser token value
+            }
         }
     }
 
-    lexer::token::number::types token::number::getProminentNumberType(lexer::token::number::types other) {
+    lexer::token::number::types token::number::getProminentNumberType(lexer::token::number::types other, Operator::types t) {
+        bool TransformsIntoBooleanViaCompare = false;
+
+        if (t == Operator::types::COMPARISON || t == Operator::types::LOGICAL_AND || t == Operator::types::LOGICAL_OR) { TransformsIntoBooleanViaCompare = true; }
+
+        // If any of the above mentioned operation types are present, then boolean MUST be the most prominent tracing type.
+        if (TransformsIntoBooleanViaCompare) return lexer::token::number::types::BOOLEAN;
+
         // int < float
         if (numberType == lexer::token::number::types::FLOAT || other == lexer::token::number::types::FLOAT) {
             return lexer::token::number::types::FLOAT;
@@ -248,7 +274,11 @@ namespace parser {
         if (numberType == lexer::token::number::types::INTEGER) {
             long long LLvalue{};
             auto [ptr, ec] = from_chars(begin, end, LLvalue);
-            if (ec == errc::result_out_of_range) { minRequiredByteSize = 8; return; }
+            if (ec == errc::result_out_of_range) {
+                std::cout << "integer constant is too large: " << value << toString() << std::endl;
+                minRequiredByteSize = 8; 
+                return; 
+            }
 
             if (LLvalue >= numeric_limits<int8_t>::min() && LLvalue <= numeric_limits<int8_t>::max())
                 minRequiredByteSize = 1;
@@ -268,7 +298,11 @@ namespace parser {
         else if (numberType == lexer::token::number::types::HEX) {
             unsigned long long LLvalue{};
             auto [ptr, ec] = from_chars(begin, end, LLvalue, 2);
-            if (ec == errc::result_out_of_range) { minRequiredByteSize = 8; return; }
+            if (ec == errc::result_out_of_range) { 
+                std::cout << "hex constant is too large: " << value << toString() << std::endl;
+                minRequiredByteSize = 8; 
+                return; 
+            }
 
             if (LLvalue <= std::numeric_limits<uint8_t>::max())
                 minRequiredByteSize = 1;
@@ -278,6 +312,9 @@ namespace parser {
                 minRequiredByteSize = 4;
             else
                 minRequiredByteSize = 8;
+        }
+        else if (numberType == lexer::token::number::types::BOOLEAN) {
+            minRequiredByteSize = 1;
         }
     }
 

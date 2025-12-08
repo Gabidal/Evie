@@ -11,6 +11,7 @@
 #include <string>
 #include <new>
 #include <utility>
+#include <charconv>
 
 namespace parser {
 
@@ -19,6 +20,11 @@ namespace parser {
 
         namespace scope {
             class base;
+        }
+        
+        namespace Operator {
+            // Ordered via the order of combination
+            enum class types;
         }
     }
 
@@ -166,6 +172,7 @@ namespace parser {
             number(info Info, const std::string& TextValue) : parser::token::base(Info), value(TextValue) {
                 if(value.find('.') != std::string::npos) numberType = lexer::token::number::types::FLOAT;
                 else if (value.find('x') != std::string::npos || value.find('X') != std::string::npos) numberType = lexer::token::number::types::HEX;
+                else if (value == "true" || value == "false") numberType = lexer::token::number::types::BOOLEAN;
                 else numberType = lexer::token::number::types::INTEGER;
 
                 determineSize();
@@ -183,7 +190,20 @@ namespace parser {
                 return value;
             }
 
-            lexer::token::number::types getProminentNumberType(lexer::token::number::types other);
+            template<typename T>
+            T getValueWithBooleanOverrideAsNumber() {
+                if (numberType == lexer::token::number::types::BOOLEAN) {
+                    return value == "true" ? 1 : 0;
+                } else {
+                    if constexpr (std::is_integral<T>::value) {
+                        return static_cast<T>(std::stoll(value));
+                    } else {
+                        return static_cast<T>(std::stod(value));
+                    }
+                }
+            }
+
+            lexer::token::number::types getProminentNumberType(lexer::token::number::types other, Operator::types t);
 
         private:
             void determineSize();
