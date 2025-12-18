@@ -146,6 +146,8 @@ namespace parser {
     
                 // Auto-adds itself to the current parent
                 base(info Info, std::vector<std::string_view> toInherit, types defType = types::VARIABLE);
+
+                bool inherits(std::string_view inheritableSymbol);
                 
                 static void factory(unit::base* /*Current Translation Unit State*/, int32_t& /*Current Index*/);
             };
@@ -159,6 +161,8 @@ namespace parser {
             definition::base* reference;
 
             object(info Info, definition::base* ref) : token::base(Info), name(ref->symbol), reference(ref) {}
+
+            bool inherits(std::string_view inheritableSymbol);
             
             static void factory(unit::base* /*Current Translation Unit State*/, int32_t& /*Current Index*/);
         };
@@ -247,6 +251,8 @@ namespace parser {
                         }
                     }
                 }
+            
+                void insert(base* otherScope, int32_t Index);
             };
 
             namespace parenthesis {
@@ -465,12 +471,16 @@ namespace parser {
             token::scope::base* header;
             token::scope::base* body;
 
+            std::vector<condition*> branches;
+
             condition(info Info, token::scope::base* Header, token::scope::base* Body) : token::base(Info), header(Header), body(Body) {
                 if (header) header->contextParent = this;
                 if (body) body->contextParent = this;
             }
 
             static void factory(unit::base* /*Current Translation Unit State*/, int32_t& /*Start Index*/);
+
+            static void collectBranches(unit::base* /*Current Translation Unit State*/, int32_t& /*Start Index*/);
 
             [[nodiscard]] token::base* findClosestDefinition(std::string_view Symbol) override {
                 // Check header first

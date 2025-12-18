@@ -72,16 +72,106 @@ void preprocessor::unwrap::conditionals(preprocessor::unit* currentUnit, int32_t
     auto* conditional = dynamic_cast<parser::token::condition*>(currentUnit->currentScope->children[index]);
 
     /**
+     * NOTE: casts do NOT work and make this brittle, this can be fixed with a linear transformation style approach of two linked parser tokens, source and the projected destination-
+     * where the format and size can be changed to whatever it is changed into, be it integer into float or smaller to bigger or vise versa.
+     */
+
+    /**
      * For us to determine if this condition is unwraptable, we need to first call preprocessor to inline and simplify the condition.
-     * If the resulting condition = 1, we replace the condition with the contents of the body (remember to also transfer any definitions made inside the condition)
-     * If the resulting condition = 0, we remove the entire conditional from the AST.
-     * If the resulting condition is anything else, we do nothing, this is because it is most likely a run-time condition.
+     * If the resulting condition is zero, we remove the entire conditional from the AST.
+     * If the result is non-zero number, we wll proceed to inline.
+     * If the resulting condition is other than evaluatable type, we do nothing, this is because it is most likely a run-time condition.
      */
 
     preprocessor::unit subPreprocessorUnit(conditional->header, currentUnit->arguments, currentUnit->stack);
     subPreprocessorUnit.factory();
 
-    // ...
+    // First for little bit more generalization, let's create a list with all the possible branches.
+    std::vector<parser::token::condition*> allBranches(conditional->branches.size() + 1);
+
+    // Fetch from the primary condition all secondary conditions.
+    for  (size_t i = 0; i < conditional->branches.size(); i++) {
+        allBranches[i + 1] = conditional->branches[i];
+    }
+
+    // Add the primary condition to the start.
+    allBranches.front() = conditional;
+
+
+    /**
+     * Now we can start go through each conditional branch and check if it is able to be inlined or not.
+     * We can assume that each iteration thought he branches means the previous condition did not result in inline.
+     * If any of the current conditions contain non-compile time tokens, we stop.
+     * If an inlinable condition contains secondary conditions which contain non-compile time tokens, we remove them since they will never reach to be run.
+     */ 
+
+    for (size_t i = 0; i < allBranches.size(); i++) {
+        bool inlineBranch = false;
+        bool isDefaultBranch = (i == allBranches.size() - 1) && (allBranches[i]->header == nullptr);
+        bool isCompileTimeEvaluatable = (allBranches[i]->header && allBranches[i]->header->children.size() == 1 && (
+            allBranches[i]->header->children.back()->type == parser::token::types::NUMBER ||    // Any value other than zero is held as true.
+            allBranches[i]->header->children.back()->type == parser::token::types::OBJECT       // Objects will be inspected later on, much more closer.
+        ));
+
+        if (!isDefaultBranch) {
+            if (!isCompileTimeEvaluatable) break;   // Weak try, smallest mismatch should end in inline attempt termination.
+
+            auto* unknown = allBranches[i]->header->children.back();
+
+            /**
+             * Here we can split evaluation into two different categories:
+             *  - A) Directly evaluatable values, like {numbers, boolean, overridden operator for classes?}
+             *  - B) Indirectly evaluatable values, like pointers, where as long as there is a compile-time value bound to this pointer and the value is not nullptr, it can inline the condition. 
+             * 
+             */
+
+
+            parser::token::base* heldValueAtIndex = solver::getLifetimeValueFrom(unknown);
+
+            if (!heldValueAtIndex) break;
+
+            /**
+             * Now the value held by the condition, can be interpretred by two ways:
+             *   - A) If the condition is a direct, its value needs only to be checked to NOT be zero.
+             *   - B) If the condition is an indirect type, then as long as the heldValueAtIndex is NOT nullptr, then its true.
+             */
+
+            if (unknown->type == parser::token::types::NUMBER) {
+                auto* num = dynamic_cast<parser::token::number*>(unknown);
+
+                // Here we check that the value is non zero.
+                if (num->getValueWithBooleanOverrideAsNumber<int64_t>()) {
+                    inlineBranch = true;
+                }
+            } else if (unknown->type == parser::token::types::OBJECT) {
+                auto* obj = dynamic_cast<parser::token::object*>(unknown);
+
+                if (obj->inherits(utils::KEYWORDS::PTR)) {
+                    inlineBranch = true;    // Since the check for heldValueAtIndex != is checked above, we know that if we get here it means its a ptr variable who does not hold a nullptr value.
+                } else {
+                    // I don't really know what it means to be here exactly, we could recursively fetch x = getLifetimeValueFrom(x), until it reaches a nullptr or a number value...
+                }
+            }
+        }
+        else {
+            inlineBranch = true;
+        }
+
+        if (!inlineBranch) continue;
+
+        // Here we can safely inline the body of the condition at its location and removing the condition since if any of the branches is compile-time inlinable, then the other wont ever reach their body.
+        currentUnit->currentScope->children.erase(
+            currentUnit->currentScope->children.begin() + index
+        );
+
+        // Now we can inline the body of the condition
+        if (allBranches[i]->body) {
+            currentUnit->currentScope->insert(allBranches[i]->body, index);
+        }
+
+        return;
+    }
+
 }
 
 void preprocessor::solver::lifetimes::add(color c) {
@@ -94,6 +184,17 @@ void preprocessor::solver::lifetimes::add(color c) {
     }
 
     colors.push_back(c);
+}
+
+preprocessor::solver::color preprocessor::solver::lifetimes::get(lexer::token::position position) {
+    // Let's check where the index lands on the colors
+    for (auto& currentColor : colors) {
+        if (currentColor.end >= position && currentColor.start <= position) {
+            return currentColor;
+        }
+    }
+
+    return emptyColor;
 }
 
 void preprocessor::solver::determineLifetimes(preprocessor::unit* currentUnit, int32_t& index) {
@@ -136,6 +237,33 @@ void preprocessor::solver::determineLifetimes(preprocessor::unit* currentUnit, i
     );
 
     dynamic_cast<solver::lifetimes*>(definition->getConnected())->add(assign);
+}
+
+parser::token::base* preprocessor::solver::getLifetimeValueFrom(parser::token::base* unknown) {
+
+    auto* variable = dynamic_cast<parser::token::object*>(unknown);
+
+    if (variable) {
+
+        // Now we need to check wether the variable is indirect or direct type variable.
+        auto* definition = variable->reference;
+
+        if (!definition) throw std::runtime_error("CRITICAL: Variable " + variable->toString() + " missing definition!");
+
+        auto* colors = dynamic_cast<solver::lifetimes*>(definition->getConnected());
+
+        if (!colors) return nullptr;   // No compile-time value is held at this time.
+
+        auto currentColor = colors->get(variable->position);
+
+        if (currentColor.isEmpty()) return nullptr; // No compile-time value is held at this time.
+
+        return currentColor.value;
+    } else {
+        // Probable straight up value, like [number, string]
+        return unknown;
+    }
+
 }
 
 void preprocessor::solver::interpreter::factory(preprocessor::unit* currentUnit, int32_t& index) {

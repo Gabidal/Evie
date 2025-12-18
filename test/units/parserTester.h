@@ -496,7 +496,7 @@ namespace tester {
             // "}\n"
             );
 
-            ASSERT_TRUE(globalScope->children.size() == 5);
+            ASSERT_TRUE(globalScope->children.size() == 4);
             ASSERT_TRUE(globalScope->children[3]->type == parser::token::types::CONDITION);
             auto ifCondition = static_cast<parser::token::condition*>(globalScope->children[3]);
             ASSERT_EQ((std::string_view)"if", ifCondition->symbol);
@@ -523,8 +523,8 @@ namespace tester {
             ASSERT_TRUE(ifAssignOp->right->type == parser::token::types::OBJECT);
             ASSERT_EQ((std::string_view)"a", ifAssignOp->right->symbol);
 
-            ASSERT_TRUE(globalScope->children[4]->type == parser::token::types::CONDITION);
-            auto elseCondition = static_cast<parser::token::condition*>(globalScope->children[4]);
+            ASSERT_TRUE(ifCondition->branches.size() == 1);
+            auto elseCondition = static_cast<parser::token::condition*>(ifCondition->branches[0]);
             ASSERT_EQ((std::string_view)"else", elseCondition->symbol);
             ASSERT_TRUE(elseCondition->body->type == parser::token::types::SCOPE);
             ASSERT_TRUE(elseCondition->header == nullptr);

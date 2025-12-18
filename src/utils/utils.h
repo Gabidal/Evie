@@ -134,6 +134,14 @@ namespace utils {
         constexpr const char* FALSE = "false";
         constexpr const char* TRUE  = "true";
     };
+
+    namespace KEYWORDS {
+        constexpr std::string_view IF = "if";
+        constexpr std::string_view ELSE = "else";
+        constexpr std::string_view FOR = "for";
+        constexpr std::string_view WHILE = "while";
+        constexpr std::string_view PTR = "ptr";
+    }
 }
 
 // Auto un-namespace locked utilities:

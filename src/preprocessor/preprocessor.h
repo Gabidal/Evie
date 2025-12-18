@@ -69,17 +69,25 @@ namespace preprocessor {
             lexer::token::position start;   // Definition position isn't always the newset assign.
             lexer::token::position end;     // If more data is assigned or reference is taken.
 
+            bool isEmpty() { return value; }
+
             color(parser::token::base* Value, lexer::token::position Start = {}, lexer::token::position End = {}) : value(Value), start(Start), end(End) {}
         };
+
+        const inline color emptyColor = color(nullptr);
 
         class lifetimes : public utils::linkable {
         public:
             std::vector<color> colors;  // Contains all the different lifetimes of each value the linked definition has.
 
             void add(color c);
+
+            color get(lexer::token::position location);
         };
 
         extern void determineLifetimes(preprocessor::unit* currentUnit, int32_t& index);
+
+        extern parser::token::base* getLifetimeValueFrom(parser::token::base* unknown);
 
         namespace interpreter {
             extern void factory(preprocessor::unit* currentUnit, int32_t& index);

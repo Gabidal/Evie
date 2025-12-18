@@ -27,6 +27,7 @@ namespace parser {
                 token::scope::parenthesis::factory(this, index);
                 token::Operator::fetcher::factory(this, index);
                 token::condition::factory(this, index);
+                token::condition::collectBranches(this, index);
                 token::looper::factory(this, index);
                 token::string::factory(this, index);
                 token::string::escape::factory(this, index);
@@ -112,6 +113,21 @@ namespace parser {
         if (parent) {
             parent->definitions.push_back(this);
         }
+    }
+
+    bool token::definition::base::inherits(std::string_view inheritableSymbol) {
+        for (const auto& inherit : inherited) {
+            if (inherit == inheritableSymbol) {
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    bool token::object::inherits(std::string_view inheritableSymbol) {
+        if (!reference) throw std::runtime_error("CRITICAL: Object " + toString() + " missing definition!");
+
+        return reference->inherits(inheritableSymbol);
     }
 
     void token::definition::base::factory(unit::base* currentUnit, int32_t& startIndex) {
@@ -692,6 +708,28 @@ namespace parser {
         }
     }
 
+    void token::scope::base::insert(base* otherScope, int32_t index) {
+        children.insert(
+            children.begin() + index,
+            otherScope->children.begin(),
+            otherScope->children.end()
+        );
+
+        // Maybe not inserting definitions into right order might pose a problem later on when querying shadowing definitions in dense inlines.
+        definitions.insert(
+            definitions.end(),
+            otherScope->definitions.begin(),
+            otherScope->definitions.end()
+        );
+
+        // Same problem here probably.
+        rawTokens.insert(
+            rawTokens.end(),
+            otherScope->rawTokens.begin(),
+            otherScope->rawTokens.end()
+        );
+    }
+
     void token::scope::parenthesis::factory(unit::base* currentUnit, int32_t& startIndex) {
         if (currentUnit->passIndex != unit::pass::FIRST) return;    // Parenthesis's aren't really dependant of anything else, so they can be one of the first to be parsed.
 
@@ -924,11 +962,11 @@ namespace parser {
             startIndex + 1
         );
 
-        if ((symbol == "if" || symbol == "else") && nextTokens.length() == 2) {
+        if ((symbol == utils::KEYWORDS::IF || symbol == utils::KEYWORDS::ELSE) && nextTokens.length() == 2) {
             header = currentUnit->at<lexer::token::base>(nextTokens.min)->parsed;
             body = currentUnit->at<lexer::token::base>(nextTokens.max-1)->parsed;
         }
-        else if (symbol == "else" && nextTokens.length() == 1) {
+        else if (symbol == utils::KEYWORDS::ELSE && nextTokens.length() == 1) {
             body = currentUnit->at<lexer::token::base>(nextTokens.min)->parsed;
         }
         else return;
@@ -981,6 +1019,35 @@ namespace parser {
         currentUnit->tokens.erase(currentUnit->tokens.begin() + nextTokens.min, currentUnit->tokens.begin() + nextTokens.max);
     }
 
+    void token::condition::condition::collectBranches(unit::base* currentUnit, int32_t& startIndex) {
+        if (currentUnit->passIndex != unit::pass::THIRD) return;    // Conditions are made in SECOND pass.
+
+        auto* Condition = dynamic_cast<parser::token::condition*>(currentUnit->at<lexer::token::base>(startIndex)->parsed);
+
+        // check if current index contains a condition
+        if (!Condition) return;
+
+        utils::range nextTokens = unit::findSubsequentParsedTokens(
+            currentUnit,
+            startIndex + 1
+        );
+
+        for (int i = nextTokens.min; i < nextTokens.max; i++) {
+            if (!currentUnit->tokens[i]->parsed) break;
+
+            auto* branch = dynamic_cast<parser::token::condition*>(currentUnit->tokens[i]->parsed);
+
+            if (!branch) break;
+
+            if (branch->symbol != utils::KEYWORDS::ELSE) break; // else (...) {} or else {}
+
+            Condition->branches.push_back(branch);
+        }
+
+        // now we can remove the [nextTokens.min, nextTokens.max]
+        currentUnit->tokens.erase(currentUnit->tokens.begin() + nextTokens.min, currentUnit->tokens.begin() + nextTokens.max);
+    }
+
     void token::looper::factory(unit::base* currentUnit, int32_t& startIndex) {
         if (currentUnit->passIndex != unit::pass::SECOND) return;    // Loopers need callers to be parsed first.
         
@@ -997,7 +1064,7 @@ namespace parser {
             startIndex + 1
         );
 
-        if ((symbol == "while" || symbol == "for") && nextTokens.length() == 2) {
+        if ((symbol == utils::KEYWORDS::WHILE || symbol == utils::KEYWORDS::FOR) && nextTokens.length() == 2) {
             header = currentUnit->at<lexer::token::base>(nextTokens.min);
             body = currentUnit->at<lexer::token::base>(nextTokens.max-1)->parsed;
         }
