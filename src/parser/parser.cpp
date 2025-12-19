@@ -442,6 +442,8 @@ namespace parser {
     void token::Operator::base::factory(unit::base* currentUnit) {
         if (currentUnit->passIndex != unit::pass::THIRD) return;
 
+        if (currentUnit->inString) return;
+
         // <bool a> = 1 == 1 && 1 & 1
         // a = <1 == 1> && <1 & 1>
         // a = <l && r>
@@ -510,6 +512,8 @@ namespace parser {
 
         lexer::token::op* currentOperator = currentUnit->at<lexer::token::op>(i);
 
+        if (currentOperator->parsed) return;    // Already parsed, probably by inlined include contents.
+
         token::base* left = currentUnit->at<lexer::token::base>(i - 1)->parsed;
         token::base* right = currentUnit->at<lexer::token::base>(i + 1)->parsed;
 
@@ -542,6 +546,8 @@ namespace parser {
 
     void token::Operator::fetcher::factory(unit::base* currentUnit, int32_t& i) {
         if (currentUnit->passIndex != unit::pass::FIRST) return;
+
+        if (currentUnit->inString) return;
 
         // Checks if the current token is a operator token type, if so it needs to be accommodated.
         if (currentUnit->at<lexer::token::base>(i)->get_type() != lexer::token::types::OPERATOR) return;
@@ -1115,6 +1121,21 @@ namespace parser {
             condition = currentUnit->at<lexer::token::base>(nextTokens.min)->parsed;
         }
 
+        // Transform body into a scope token if it is not already one.
+        if (body->type != token::types::SCOPE) {
+            token::scope::base* bodyscope = new token::scope::base(
+                token::info(
+                    token::types::SCOPE,
+                    body->position,
+                    body->parent,
+                    "looper_body_" + std::to_string(body->position.y) + "_" + std::to_string(body->position.x)
+                ),
+                {}
+            );
+
+            bodyscope->children.push_back(body);
+            body = bodyscope;
+        }
 
         token::looper* newLooper = new token::looper(
             token::info(
@@ -1126,7 +1147,7 @@ namespace parser {
             init,
             condition,
             footer,
-            body
+            dynamic_cast<token::scope::base*>(body)
         );
 
         currentUnit->at<lexer::token::text>(startIndex)->parsed = newLooper;
@@ -1180,5 +1201,8 @@ namespace parser {
         );
 
         currentUnit->at<lexer::token::text>(startIndex)->parsed = newInclude;
+
+        // remove the leftover string
+        currentUnit->tokens.erase(currentUnit->tokens.begin() + startIndex + 1);
     }
 }

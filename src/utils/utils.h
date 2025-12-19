@@ -5,6 +5,8 @@
 #include <cstdint>
 #include <stdexcept>
 #include <algorithm>
+#include <string>
+#include <string_view>
 #include <vector>
 
 namespace utils {
@@ -142,6 +144,17 @@ namespace utils {
         constexpr std::string_view WHILE = "while";
         constexpr std::string_view PTR = "ptr";
     }
+
+    /**
+     * @brief Removes quote characters from a string.
+     *
+     * This is a small utility intended for cleaning user-provided strings where
+     * both single quotes (') and double quotes (") are not desired.
+     *
+     * @param in Input string (not modified).
+     * @return A copy of @p in with all occurrences of '\'' and '"' removed.
+     */
+    extern std::string sanitize(std::string_view in);
 }
 
 // Auto un-namespace locked utilities:

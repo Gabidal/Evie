@@ -1,6 +1,7 @@
 #include "docker.h"
 #include "../lexer/lexer.h"
 #include "../args/args.h"
+#include "../utils/utils.h"
 
 #include <filesystem>
 #include <fstream>
@@ -11,12 +12,14 @@ namespace docker{
 
         namespace descriptor{
             base* base::create(const std::string_view file_name, args::base* env){
-                if (local::is_compatible(file_name)){
-                    return new local(file_name, env);
+                const std::string sanitizedFileName = utils::sanitize(file_name);
+
+                if (local::is_compatible(sanitizedFileName)){
+                    return new local(sanitizedFileName, env);
                 }
 
-                if (remote::is_compatible(file_name)){
-                    return new remote(file_name, env);
+                if (remote::is_compatible(sanitizedFileName)){
+                    return new remote(sanitizedFileName, env);
                 }
 
                 // TODO: add error handling
@@ -215,6 +218,10 @@ namespace docker{
 
             return result;
         }
+    }
+
+    docker::stack::stack() {
+        file::add_translators();
     }
 
     std::filesystem::path stack::consolidate() {

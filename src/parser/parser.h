@@ -124,6 +124,8 @@ namespace parser {
 
             // By default no operation since a normal token does not hold any matchable objects.
             virtual void replace(token::base* /* Match */, token::base* /* Source */) {}    // Does nothing.
+
+            virtual std::vector<scope::base*> getWalkable() { return {}; }
         };
 
         // If we use this we can use it with no need to worry about slicing, although just using token::base as info packet is also fine tbh 🙄
@@ -253,6 +255,10 @@ namespace parser {
                 }
             
                 void insert(base* otherScope, int32_t Index);
+
+                std::vector<scope::base*> getWalkable() override {
+                    return {this};
+                }
             };
 
             namespace parenthesis {
@@ -313,6 +319,10 @@ namespace parser {
                         }
                     }
                 }
+            }
+
+            std::vector<scope::base*> getWalkable() override {
+                return wrappers;
             }
         };
 
@@ -500,6 +510,10 @@ namespace parser {
                 if (header == match) header = dynamic_cast<token::scope::base*>(source);
                 if (body == match) body = dynamic_cast<token::scope::base*>(source);
             }
+
+            std::vector<scope::base*> getWalkable() override {
+                return {header, body};
+            }
         };
 
         class looper : public token::base {
@@ -508,9 +522,9 @@ namespace parser {
             token::base* condition;  // i < size, true
             token::base* footer;     // i++, call(&i)
 
-            token::base* body;
+            scope::base* body;
 
-            looper(info Info, token::base* Init, token::base* Condition, token::base* Footer, token::base* Body) : token::base(Info), init(Init), condition(Condition), footer(Footer), body(Body) {
+            looper(info Info, token::base* Init, token::base* Condition, token::base* Footer, scope::base* Body) : token::base(Info), init(Init), condition(Condition), footer(Footer), body(Body) {
                 if (init) init->contextParent = this;
                 if (condition) condition->contextParent = this;
                 if (footer) footer->contextParent = this;
@@ -537,7 +551,17 @@ namespace parser {
                 if (init == match) init = source;
                 if (condition == match) condition = source;
                 if (footer == match) footer = source;
-                if (body == match) body = source;
+                if (body == match) {
+                    if (dynamic_cast<scope::base*>(source)) {
+                        body = dynamic_cast<scope::base*>(source);
+                    } else {
+                        throw std::runtime_error("Cannot replace looper body with non-scope token.");
+                    }
+                }
+            }
+
+            std::vector<scope::base*> getWalkable() override {
+                return {body};
             }
         };
     

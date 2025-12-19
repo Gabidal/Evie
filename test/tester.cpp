@@ -3,6 +3,7 @@
 #include "units/parserTester.h"
 #include "units/argsTester.h"
 #include "units/dockerTester.h"
+#include "units/preprocessorTester.h"
 
 int main() {
     std::cout << tester::utils::colorText("GGUI Framework Test Suite\n", GGUI::COLOR::BLUE);
@@ -14,7 +15,8 @@ int main() {
             new tester::lexerTester(),
             new tester::parserTester(),
             new tester::argsTester(),
-            new tester::dockerTester()
+            new tester::dockerTester(),
+            new tester::preprocessorTester()
         });
     } catch (const std::exception& e) {
         std::cout << tester::utils::colorText("Test suite crashed with exception: ", GGUI::COLOR::RED) << e.what() << "\n";

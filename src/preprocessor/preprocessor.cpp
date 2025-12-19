@@ -6,9 +6,22 @@ void preprocessor::unit::factory() {
         includer::openInclude(this, i);
         includer::closeInclude(this, i);
 
+        walkThroughScopes(i);   // prioritize sub scopes and their inner contents before proceeding.
+
+        unwrap::branches(this, i);
+
         solver::determineLifetimes(this, i);
 
         solver::interpreter::factory(this, i);
+    }
+}
+
+void preprocessor::unit::walkThroughScopes(int32_t index) {
+    for (auto innerScope : currentScope->children[index]->getWalkable()) {
+
+        preprocessor::unit subPreprocessorUnit(innerScope, arguments, stack);
+        subPreprocessorUnit.factory();
+
     }
 }
 
@@ -33,20 +46,22 @@ void preprocessor::includer::openInclude(preprocessor::unit* currentUnit, int32_
         // First transform the BEGIN includer into an END includer
         include->includeType = parser::token::includer::types::END;
     
-        if (!inlined.empty()){
-            // Now we can insert before the end token the inlined lexer tokens.
-            currentUnit->currentScope->rawTokens.insert(
-                currentUnit->currentScope->rawTokens.begin() + index,
-                inlined.begin(),
-                inlined.end()
-            );
-        }
+        // We put the included tokens into a tmp scope so that we can have more control over the parsed output
+        parser::token::scope::base* tmpScopeForInline = new parser::token::scope::base(
+            parser::token::info(
+                parser::token::types::SCOPE,
+                include->position,
+                currentUnit->currentScope,
+                "include_inline_scope_" + std::to_string(include->position.y) + "_" + std::to_string(include->position.x)
+            ),
+            inlined
+        );
 
         // Now we need to call the parser on the inlined tokens with the other tokens
-        parser::unit::base* subParser = new parser::unit::base(parser::unit::pass::FIRST, currentUnit->currentScope);
+        parser::unit::base* subParser = new parser::unit::base(parser::unit::pass::FIRST, tmpScopeForInline);
         subParser->factory();
 
-        index -= inlined.size();  // Tell the preprocessor to re-evaluate the current scope, since it's content has changed.
+        currentUnit->currentScope->insert(tmpScopeForInline, index);
     }
 }
 
@@ -67,7 +82,7 @@ void preprocessor::includer::closeInclude(preprocessor::unit* currentUnit, int32
     index--;
 }
 
-void preprocessor::unwrap::conditionals(preprocessor::unit* currentUnit, int32_t& index) {
+void preprocessor::unwrap::branches(preprocessor::unit* currentUnit, int32_t& index) {
     if (currentUnit->currentScope->children[index]->type != parser::token::types::CONDITION) return;
     auto* conditional = dynamic_cast<parser::token::condition*>(currentUnit->currentScope->children[index]);
 
@@ -108,7 +123,7 @@ void preprocessor::unwrap::conditionals(preprocessor::unit* currentUnit, int32_t
     for (size_t i = 0; i < allBranches.size(); i++) {
         bool inlineBranch = false;
         bool isDefaultBranch = (i == allBranches.size() - 1) && (allBranches[i]->header == nullptr);
-        bool isCompileTimeEvaluatable = (allBranches[i]->header && allBranches[i]->header->children.size() == 1 && (
+        bool isCompileTimeEvaluatable = (allBranches[i]->header && !allBranches[i]->header->children.empty() && (
             allBranches[i]->header->children.back()->type == parser::token::types::NUMBER ||    // Any value other than zero is held as true.
             allBranches[i]->header->children.back()->type == parser::token::types::OBJECT       // Objects will be inspected later on, much more closer.
         ));
@@ -128,7 +143,7 @@ void preprocessor::unwrap::conditionals(preprocessor::unit* currentUnit, int32_t
 
             parser::token::base* heldValueAtIndex = solver::getLifetimeValueFrom(unknown);
 
-            if (!heldValueAtIndex) break;
+            if (!heldValueAtIndex) continue;
 
             /**
              * Now the value held by the condition, can be interpretred by two ways:
@@ -168,6 +183,9 @@ void preprocessor::unwrap::conditionals(preprocessor::unit* currentUnit, int32_t
         if (allBranches[i]->body) {
             currentUnit->currentScope->insert(allBranches[i]->body, index);
         }
+
+        // Ensure the new token at index is properly handled:
+        index--;
 
         return;
     }

@@ -24,3 +24,25 @@ void utils::linkable::disconnect() {
         sibling = nullptr;          // Clear our pointer
     }
 }
+
+std::string utils::sanitize(std::string_view in) {
+    /**
+     * Removes quote characters from the provided string.
+     *
+     * Notes:
+     * - Performs a single pass over the data using the standard erase/remove idiom.
+     * - Does not trim whitespace or perform escaping; it only removes '"' and '\''.
+     */
+    std::string out(in);
+
+    out.erase(
+        std::remove_if(
+            out.begin(),
+            out.end(),
+            [](unsigned char ch) { return ch == '"' || ch == '\''; }
+        ),
+        out.end()
+    );
+
+    return out;
+}

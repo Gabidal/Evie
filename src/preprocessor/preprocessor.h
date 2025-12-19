@@ -35,6 +35,8 @@ namespace preprocessor {
 
         void factory();
 
+        void walkThroughScopes(int32_t index);
+
         unit(parser::token::scope::base* CurrentScope, args::base* Arguments, docker::stack* Stack) : currentScope(CurrentScope), arguments(Arguments), stack(Stack) {}
     };
 
@@ -49,7 +51,7 @@ namespace preprocessor {
 
     namespace unwrap {
 
-        extern void conditionals(preprocessor::unit* currentUnit, int32_t& index);
+        extern void branches(preprocessor::unit* currentUnit, int32_t& index);
 
     }
     
@@ -69,7 +71,7 @@ namespace preprocessor {
             lexer::token::position start;   // Definition position isn't always the newset assign.
             lexer::token::position end;     // If more data is assigned or reference is taken.
 
-            bool isEmpty() { return value; }
+            bool isEmpty() { return !value; }
 
             color(parser::token::base* Value, lexer::token::position Start = {}, lexer::token::position End = {}) : value(Value), start(Start), end(End) {}
         };
