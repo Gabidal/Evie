@@ -7,9 +7,7 @@
 
 namespace parser {
 
-    unit::base::base(unit::pass i, token::scope::base* p, bool InString) : passIndex(i), parent(p), tokens(p->rawTokens), inString(InString) {
-
-    }
+    unit::base::base(unit::pass i, token::scope::base* p, bool InString) : passIndex(i), parent(p), tokens(p->rawTokens), inString(InString) {}
 
     void unit::base::factory() {
         for (passIndex = pass::FIRST; passIndex < pass::LAST; ++passIndex) {

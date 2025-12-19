@@ -11,56 +11,58 @@ namespace docker{
         inline std::vector<descriptor::base*> used_files;
 
         namespace descriptor{
-            base* base::create(const std::string_view file_name, args::base* env){
+            base* base::create(const std::string_view file_name, args::base* env, docker::stack* fileStack){
                 const std::string sanitizedFileName = utils::sanitize(file_name);
 
                 if (local::is_compatible(sanitizedFileName)){
-                    return new local(sanitizedFileName, env);
+                    return new local(sanitizedFileName, env, fileStack);
                 }
 
                 if (remote::is_compatible(sanitizedFileName)){
-                    return new remote(sanitizedFileName, env);
+                    return new remote(sanitizedFileName, env, fileStack);
                 }
 
                 // TODO: add error handling
                 return nullptr;
             }
 
-            local::local(std::string_view file_name, [[maybe_unused]] args::base* env, bool needs_to_exist) : base(types::LOCAL) {
+            local::local(std::string_view file_name, [[maybe_unused]] args::base* env, stack* fileStack, bool needs_to_exist) : base(types::LOCAL) {
+                std::string actualFileName = fileStack->consolidate().string() + "/" + std::string(file_name);
+                
                 // extract from the string the path, name and the extension
-                size_t last_slash = file_name.find_last_of('/');
+                size_t last_slash = actualFileName.find_last_of('/');
 
                 if(last_slash == std::string::npos){
-                    last_slash = file_name.find_last_of('\\');
+                    last_slash = actualFileName.find_last_of('\\');
                 }
 
                 if(last_slash != std::string::npos){
-                    relative_path = file_name.substr(last_slash + 1);
+                    relative_path = actualFileName.substr(last_slash + 1);
                 }
 
-                size_t last_dot = file_name.find_last_of('.');
+                size_t last_dot = actualFileName.find_last_of('.');
 
                 if(last_dot != std::string::npos){
-                    extension = file_name.substr(last_dot + 1);
+                    extension = actualFileName.substr(last_dot + 1);
                 }
 
                 if(last_slash != std::string::npos){
                     if(last_dot != std::string::npos && last_dot > last_slash){
-                        name = file_name.substr(last_slash + 1, last_dot - last_slash - 1);
+                        name = actualFileName.substr(last_slash + 1, last_dot - last_slash - 1);
                     } else {
-                        name = file_name.substr(last_slash + 1);
+                        name = actualFileName.substr(last_slash + 1);
                     }
                 } else {
                     if(last_dot != std::string::npos){
-                        name = file_name.substr(0, last_dot);
+                        name = actualFileName.substr(0, last_dot);
                     } else {
-                        name = file_name;
+                        name = actualFileName;
                     }
                 }
 
                 if (needs_to_exist){
                     // we can now also get the real address of the file and from there extract the actual absolute path of the file
-                    absolute_path = std::filesystem::absolute(file_name).string();
+                    absolute_path = std::filesystem::absolute(actualFileName).string();
 
                     // check that the file pointed by absolute path exists
                     if(!std::filesystem::exists(absolute_path)){
@@ -102,7 +104,7 @@ namespace docker{
                 }
             }
 
-            remote::remote(std::string_view url, args::base* env) : base(types::REMOTE) {
+            remote::remote(std::string_view url, args::base* env, stack* fileStack) : base(types::REMOTE) {
                 // find the scheme from the start of the url
                 size_t scheme_end = url.find("://");
                 if(scheme_end == std::string::npos){
@@ -125,7 +127,7 @@ namespace docker{
                 }
 
                 // now we can extract the resource and its path information from it
-                resource = local(url.substr(host_end, query_start - host_end), env, false);
+                resource = local(url.substr(host_end, query_start - host_end), env, fileStack, false);
 
                 // find the start of the fragment if not found then set it to zero
                 size_t fragment_start = url.find("#", query_start);
@@ -170,9 +172,9 @@ namespace docker{
         std::unordered_map<std::string_view, std::function<std::vector<lexer::token::base*>(descriptor::local)>> local_translators; 
         std::unordered_map<std::string_view, std::function<std::vector<lexer::token::base*>(descriptor::remote)>> remote_translators; 
 
-        std::vector<lexer::token::base*> translate(std::string_view file_name, args::base* env){
+        std::vector<lexer::token::base*> translate(std::string_view file_name, args::base* env, stack* fileStack){
             // create file handle and find right file translator
-            descriptor::base* current = descriptor::base::create(file_name, env);
+            descriptor::base* current = descriptor::base::create(file_name, env, fileStack);
 
             if (!current) throw std::runtime_error("Unable to create file descriptor for file: " + std::string(file_name));
 
@@ -261,12 +263,19 @@ namespace docker{
     }
 
     void stack::add(std::string_view pathAndFileName) {
+        std::string sanitized = utils::sanitize(pathAndFileName);
+
         // First let's check if the incoming file is already added
-        if (contains(pathAndFileName)) return; // No need to throw, because this way we enable multiple includes of files without breaking.
+        if (contains(sanitized)) return; // No need to throw, because this way we enable multiple includes of files without breaking.
 
         // Next we'll split the incoming into the relative path and the absolute file path
-        std::filesystem::path relativePath = std::filesystem::path(pathAndFileName).parent_path();
-        std::filesystem::path absoluteFilePath = std::filesystem::absolute(pathAndFileName);
+        std::filesystem::path relativePath = std::filesystem::path(std::string(sanitized)).parent_path();
+        std::filesystem::path absoluteFilePath = std::filesystem::absolute(consolidate() / std::filesystem::path(std::string(sanitized)));
+
+        if (relativePath.empty()) {
+            // add mandatory '/'
+            relativePath = "/";
+        }
 
         files.push_back(absoluteFilePath);
         dirs.push_back(relativePath.string());

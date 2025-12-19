@@ -195,6 +195,21 @@ void args::base::matchAddressSpace(int& i) {
     }
 }
 
-void args::base::toToken(parser::token::base* scope) {
-    
+void args::base::toToken(parser::token::scope::base* scope) {
+    parser::unit::lexerOutput lexerTokens = lexer::tokenize(
+        "const OS = \"" + targetOS + "\"\n"
+        "const ARCHITECTURE = \"" + targetArchitecture + "\"\n"
+        "const BITS_SIZE = " + std::to_string(static_cast<int>(AddressSpace)) + "\n",
+        0
+    );
+
+    parser::token::scope::base* tmpConstantsScope = new parser::token::scope::base(
+        parser::token::info(parser::token::types::SCOPE),
+        lexerTokens
+    );
+
+    parser::unit::base tmpParser(parser::unit::pass::FIRST, tmpConstantsScope);
+    tmpParser.factory();
+
+    scope->insert(tmpConstantsScope, 0);
 }

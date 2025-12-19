@@ -3,8 +3,11 @@
 
 #include <type_traits>
 #include <cstdint>
+#include <cstddef>
+#include <exception>
 #include <stdexcept>
 #include <algorithm>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -155,6 +158,44 @@ namespace utils {
      * @return A copy of @p in with all occurrences of '\'' and '"' removed.
      */
     extern std::string sanitize(std::string_view in);
+
+    template <typename problematicFunction, typename fixerFunction>
+    void forEverThrowFixer(problematicFunction&& probFn, fixerFunction&& fixFn, std::size_t maxAttempts = 1024) {
+        std::optional<std::string> lastMsg;
+        std::exception_ptr lastException;
+
+        for (std::size_t attempt = 0; attempt < maxAttempts; ++attempt) {
+            try {
+                probFn();
+                return;                 // success: no throw => done
+            } catch (const std::exception& e) {
+                std::string msg = e.what();
+                lastException = std::current_exception();
+
+                // If we threw the exact same reason twice, we're likely stuck -> stop retrying.
+                if (lastMsg && *lastMsg == msg) {
+                    std::runtime_error repeated("ERROR: " + msg);
+                    std::throw_with_nested(repeated);
+                }
+
+                lastMsg = std::move(msg);
+            }
+
+            // Attempt to fix the problem; if the fixer throws, preserve that too.
+            try {
+                fixFn();
+            } catch (...) {
+                std::runtime_error fixerFailed("Evie could not fix the problem:");
+                std::throw_with_nested(fixerFailed);
+            }
+        }
+
+        // Safety cap hit; rethrow the last exception if we have one.
+        if (lastException) {
+            std::runtime_error exceeded("Fixer exceeded retry limit: " + std::to_string(maxAttempts));
+            std::throw_with_nested(exceeded);
+        }
+    }
 }
 
 // Auto un-namespace locked utilities:

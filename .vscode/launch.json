@@ -6,7 +6,9 @@
       "type": "cppdbg",
       "request": "launch",
       "program": "${workspaceFolder}/bin/build/evie",
-      "args": [],
+      "args": [
+        "input", "~/std/std.e"
+      ],
       "stopAtEntry": false,
       "cwd": "${workspaceFolder}",
       "environment": [],

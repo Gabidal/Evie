@@ -8,6 +8,10 @@
 namespace parser {
     namespace token {
         class base;
+
+        namespace scope {
+            class base;
+        }
     }
 }
 
@@ -50,7 +54,7 @@ namespace args {
         void parse(int argc, char** argv);
 
         // Transforms the current arg into a class under the 
-        void toToken(parser::token::base* scope);
+        void toToken(parser::token::scope::base* scope);
     private:
         std::vector<std::string> arguments;
 

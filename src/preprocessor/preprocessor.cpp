@@ -39,7 +39,7 @@ void preprocessor::includer::openInclude(preprocessor::unit* currentUnit, int32_
         );
     }
     else {
-        parser::unit::lexerOutput inlined = docker::file::translate(include->source, currentUnit->arguments);
+        parser::unit::lexerOutput inlined = docker::file::translate(include->source, currentUnit->arguments, currentUnit->stack);
     
         currentUnit->stack->add(include->source);
 

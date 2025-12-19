@@ -18,6 +18,8 @@ namespace lexer{
 
 namespace docker{
 
+    class stack;
+
     namespace file{
         namespace descriptor{
             enum class types{
@@ -30,7 +32,7 @@ namespace docker{
             public:
                 types type;
 
-                static base* create(const std::string_view file_name, args::base* env);
+                static base* create(const std::string_view file_name, args::base* env, docker::stack* fileStack);
 
                 base(types descriptor_type) : type(descriptor_type) {}
             };
@@ -47,7 +49,7 @@ namespace docker{
 
                 std::vector<char> raw_buffer;
 
-                local(std::string_view file_name, args::base* env, bool needs_to_exist = true);
+                local(std::string_view file_name, args::base* env, stack* fileStack, bool needs_to_exist = true);
                 local() : base(types::LOCAL){};
 
                 // this will determine if the given buffer is compatible with local file path syntax
@@ -63,7 +65,7 @@ namespace docker{
                 std::string query;
                 std::string fragment;
 
-                remote(std::string_view url, args::base* env);
+                remote(std::string_view url, args::base* env, stack* fileStack);
 
                 // fetches the remote file and allocates points into it as if it was a local.
                 void localize(args::base* env);
@@ -77,7 +79,7 @@ namespace docker{
         extern std::unordered_map<std::string_view, std::function<std::vector<lexer::token::base*>(descriptor::local)>> local_translators; 
         extern std::unordered_map<std::string_view, std::function<std::vector<lexer::token::base*>(descriptor::remote)>> remote_translators; 
         
-        extern std::vector<lexer::token::base*> translate(std::string_view file_name, args::base* env);
+        extern std::vector<lexer::token::base*> translate(std::string_view file_name, args::base* env, stack* fileStack);
 
         // initializes all the translators and their respective handlers
         extern void add_translators();
@@ -87,7 +89,7 @@ namespace docker{
 
     class stack {
     public:
-        std::vector<std::string_view> dirs;
+        std::vector<std::string> dirs;
         std::vector<std::filesystem::path> files;
 
         std::filesystem::path consolidate();
