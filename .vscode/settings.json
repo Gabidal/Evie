@@ -82,5 +82,18 @@
         "filesystem": "cpp",
         "__node_handle": "cpp",
         "ios": "cpp"
-    }
+    },
+    
+    "C_Cpp.default.compileCommands": "${workspaceFolder}/bin/build/compile_commands.json",
+    "C_Cpp.default.compilerPath": "/usr/bin/c++",
+    "C_Cpp.default.cppStandard": "c++17",
+    "C_Cpp.intelliSenseEngine": "disabled",
+
+    "clangd.arguments": [
+        "--compile-commands-dir=${workspaceFolder}/bin/build",
+        "--completion-style=detailed",
+        "--header-insertion=never",
+        "--background-index",
+        "--pch-storage=memory"
+    ],
 }

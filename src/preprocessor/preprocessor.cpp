@@ -6,9 +6,10 @@ void preprocessor::unit::factory() {
         includer::openInclude(this, i);
         includer::closeInclude(this, i);
 
-        walkThroughScopes(i);   // prioritize sub scopes and their inner contents before proceeding.
-
+        // unwrapping branches needs to be called before AST walker kick in, since branch unwrapper already calls preprocessor on the condition of the branch, we dont need to worry about un-resolved variables
         unwrap::branches(this, i);
+        
+        walkThroughScopes(i);   // prioritize sub scopes and their inner contents before proceeding.
 
         solver::determineLifetimes(this, i);
 
@@ -296,26 +297,42 @@ void preprocessor::solver::interpreter::evaluate(parser::token::base* token) {
 
     parser::token::Operator::base* op = dynamic_cast<parser::token::Operator::base*>(token);
 
-    // Try to compute higher order e.g deeper AST nodes first
-    evaluate(op->left);
-    evaluate(op->right);
+    if (dynamic_cast<parser::token::Operator::fix::base*>(op)) {
+        // Fix operators are only single operand operations
+        parser::token::Operator::fix::base* fixOp = dynamic_cast<parser::token::Operator::fix::base*>(op);
 
-    if (op->left->type == parser::token::types::NUMBER && op->right->type == parser::token::types::NUMBER) {
-        parser::token::number* left = dynamic_cast<parser::token::number*>(op->left);
-        parser::token::number* right = dynamic_cast<parser::token::number*>(op->right);
+        evaluate(fixOp->operand);
 
-        parser::token::number* result = evaluate(left, right, op);
+        if (fixOp->operand->type == parser::token::types::NUMBER) {
+            parser::token::number* operand = dynamic_cast<parser::token::number*>(fixOp->operand);
 
-        // Replace the operator token with the result number token
-        parser::token::replace(op, result);
-    } else if (op->left->type == parser::token::types::STRING && op->right->type == parser::token::types::STRING) {
-        parser::token::string::base* left = dynamic_cast<parser::token::string::base*>(op->left);
-        parser::token::string::base* right = dynamic_cast<parser::token::string::base*>(op->right);
+            // parser::token::number* result = evaluate(operand, fixOp);
 
-        parser::token::base* result = evaluate(left, right, op);
+            // Replace the operator token with the result number token
+            // parser::token::replace(op, result);
+        }
+    } else {
+        // Try to compute higher order e.g deeper AST nodes first
+        evaluate(op->left);
+        evaluate(op->right);
 
-        // Replace the operator token with the result string token
-        parser::token::replace(op, result);
+        if (op->left->type == parser::token::types::NUMBER && op->right->type == parser::token::types::NUMBER) {
+            parser::token::number* left = dynamic_cast<parser::token::number*>(op->left);
+            parser::token::number* right = dynamic_cast<parser::token::number*>(op->right);
+
+            parser::token::number* result = evaluate(left, right, op);
+
+            // Replace the operator token with the result number token
+            parser::token::replace(op, result);
+        } else if (op->left->type == parser::token::types::STRING && op->right->type == parser::token::types::STRING) {
+            parser::token::string::base* left = dynamic_cast<parser::token::string::base*>(op->left);
+            parser::token::string::base* right = dynamic_cast<parser::token::string::base*>(op->right);
+
+            parser::token::base* result = evaluate(left, right, op);
+
+            // Replace the operator token with the result string token
+            parser::token::replace(op, result);
+        }
     }
 }
 

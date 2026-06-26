@@ -433,7 +433,10 @@ namespace parser {
                         }
                     }
                 };
+            }
 
+            namespace negative {
+                extern void factory(unit::base* /*Current Translation Unit State*/, int32_t& /*Start Index*/);
             }
 
             namespace comparison {

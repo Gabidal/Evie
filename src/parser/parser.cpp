@@ -447,6 +447,11 @@ namespace parser {
         // a = <l && r>
         // <a = r>
 
+        // '-123' '-a'
+        for (int32_t i = 0; i < (int32_t)currentUnit->tokens.size(); i++) {
+            token::Operator::negative::factory(currentUnit, i);
+        }
+
         // '++' '--'
         for (int32_t i = 0; i < (int32_t)currentUnit->tokens.size(); i++) {
             token::Operator::fix::base::combinator(currentUnit, i);
@@ -710,6 +715,50 @@ namespace parser {
             currentUnit->tokens.erase(currentUnit->tokens.begin() + i + 1);
             // Index remains the same
         }
+    }
+
+    void token::Operator::negative::factory(unit::base* currentUnit, int32_t& startIndex) {
+        auto* lexerToken = currentUnit->at<lexer::token::base>(startIndex);
+
+        if (lexerToken->parsed) return;
+
+        if (lexerToken->get_type() != lexer::token::types::OPERATOR) return;
+        lexer::token::op* currentOperator = currentUnit->at<lexer::token::op>(startIndex);
+
+        if (currentOperator->text != "-") return; // Not a negative operator
+
+        // First check that there is either nothing on the left or a operator or a separator
+        if (startIndex > 0) {
+            lexer::token::base* leftToken = currentUnit->at<lexer::token::base>(startIndex - 1);
+            if (leftToken->get_type() != lexer::token::types::OPERATOR && leftToken->get_type() != lexer::token::types::SEPARATOR) {
+                return; // Left token is not an operator or separator, so this is not a negative operator
+            }
+        }
+
+        // Now check that there is a valid operand on the right
+        if (startIndex + 1 >= (int32_t)currentUnit->tokens.size()) throw std::runtime_error("Incomplete negative operator at index " + std::to_string(startIndex));
+
+        token::base* right = currentUnit->at<lexer::token::base>(startIndex + 1)->parsed;
+
+        if (!right) throw std::runtime_error("Right operand not parsed or missing for negative operator at index " + std::to_string(startIndex));
+
+        // Now we have all the criteria met to construct a negative operator:
+        token::Operator::fix::base* newNegativeOperator = new token::Operator::fix::base(
+            token::info(
+                token::types::OPERATOR,
+                currentOperator->get_start(),
+                currentUnit->parent,
+                currentOperator->text
+            ),
+            right,
+            fix::type::PRE
+        );
+
+        // write parsed
+        currentUnit->at<lexer::token::op>(startIndex)->parsed = newNegativeOperator;
+
+        // Remove the i+1 token since it is now consumed
+        currentUnit->tokens.erase(currentUnit->tokens.begin() + startIndex + 1);
     }
 
     void token::scope::base::insert(base* otherScope, int32_t index) {
