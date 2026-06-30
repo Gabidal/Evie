@@ -436,6 +436,7 @@ std::string templatedIntAndFloatEvaluatorForBooleanOperators(L leftValue, R righ
                     intermediateFinalValue = (leftValue != rightValue);
                     break;
                 default:
+                    throw std::runtime_error("Unsupported comparison operator type for number evaluation in compile-time interpreter.");
                     break;
             }
             

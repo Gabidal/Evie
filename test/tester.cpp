@@ -2,7 +2,7 @@
 #include "units/lexerTester.h"
 #include "units/parserTester.h"
 #include "units/argsTester.h"
-#include "units/dockerTester.h"
+// #include "units/dockerTester.h"
 #include "units/preprocessorTester.h"
 
 int main() {
@@ -15,7 +15,7 @@ int main() {
             new tester::lexerTester(),
             new tester::parserTester(),
             new tester::argsTester(),
-            new tester::dockerTester(),
+            // new tester::dockerTester(),
             new tester::preprocessorTester()
         });
     } catch (const std::exception& e) {

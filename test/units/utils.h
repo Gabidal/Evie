@@ -9,12 +9,11 @@
 #include <vector>
 #include <functional>
 #include <cassert>
-#include <iomanip>
 #include <cctype>
 
 namespace tester {
     namespace utils {
-        std::string colorText(const char* text, GGUI::RGB color) {
+        inline std::string colorText(const char* text, GGUI::RGB color) {
             GGUI::UTF result = GGUI::UTF(text, {color, {}});
 
             return GGUI::toString(result, true);
@@ -123,7 +122,7 @@ namespace tester {
         };
 
         // Helper function to convert a single character to safe hex representation
-        std::string char_to_hex(unsigned char c) {
+        inline std::string char_to_hex(unsigned char c) {
             const char* hex_chars = "0123456789abcdef";
             std::string result = "\\x";
             result += hex_chars[(c >> 4) & 0xF];
@@ -153,7 +152,7 @@ namespace tester {
 
         // Specialization for char to handle control characters properly
         template<>
-        std::string safe_to_string<char>(const char& value) {
+        inline std::string safe_to_string<char>(const char& value) {
             if (std::iscntrl(value) || !std::isprint(value)) {
                 return char_to_hex(static_cast<unsigned char>(value));
             } else {
@@ -163,7 +162,7 @@ namespace tester {
 
         // Specialization for unsigned char
         template<>
-        std::string safe_to_string<unsigned char>(const unsigned char& value) {
+        inline std::string safe_to_string<unsigned char>(const unsigned char& value) {
             if (std::iscntrl(value) || !std::isprint(value)) {
                 return char_to_hex(value);
             } else {
@@ -173,7 +172,7 @@ namespace tester {
 
         // Specialization for C-style strings
         template<>
-        std::string safe_to_string<const char*>(const char* const& value) {
+        inline std::string safe_to_string<const char*>(const char* const& value) {
             if (value == nullptr) {
                 return "(null)";
             }
@@ -192,7 +191,7 @@ namespace tester {
 
         // Specialization for std::string
         template<>
-        std::string safe_to_string<std::string>(const std::string& value) {
+        inline std::string safe_to_string<std::string>(const std::string& value) {
             std::string safe_result;
             for (char c : value) {
                 if (std::iscntrl(c) || !std::isprint(c)) {
@@ -205,7 +204,7 @@ namespace tester {
         }
 
         // Simple assertion functions that don't use problematic macros
-        void assert_true(bool condition, const std::string& message, const std::string& file, int line) {
+        inline void assert_true(bool condition, const std::string& message, const std::string& file, int line) {
             if (!condition) {
                 std::stringstream ss;
                 ss << "Assertion failed: " << message << " at " << file << ":" << line;
@@ -213,7 +212,7 @@ namespace tester {
             }
         }
 
-        void assert_false(bool condition, const std::string& message, const std::string& file, int line) {
+        inline void assert_false(bool condition, const std::string& message, const std::string& file, int line) {
             if (condition) {
                 std::stringstream ss;
                 ss << "Assertion failed: " << message << " should be false at " << file << ":" << line;
@@ -253,7 +252,7 @@ namespace tester {
             }
         }
 
-        void assert_float_eq(float expected, float actual, float epsilon, const std::string& file, int line) {
+        inline void assert_float_eq(float expected, float actual, float epsilon, const std::string& file, int line) {
             if (std::abs(expected - actual) > epsilon) {
                 // Build the error message using string concatenation to avoid stringstream issues
                 std::string error_msg = "Assertion failed: expected ";
@@ -280,7 +279,7 @@ namespace tester {
         #define ASSERT_FLOAT_EQ(expected, actual, epsilon) tester::utils::assert_float_eq((expected), (actual), (epsilon), __FILE__, __LINE__)
 
         // Function to run all test suites
-        void run_all_tests(const std::vector<TestSuite*>& test_suites) {
+        inline void run_all_tests(const std::vector<TestSuite*>& test_suites) {
             TestStats result;
             
             std::cout << colorText("Starting GGUI Test Framework\n", GGUI::COLOR::MAGENTA);

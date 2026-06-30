@@ -5,7 +5,7 @@
 //
 //  TABLE OF CONTENTS
 //    [1] src/core/utils/superString.h
-//    [2] src/core/utils/fastVector.h
+//    [2] src/core/utils/conveyorAllocator.h
 //    [3] src/core/utils/constants.h
 //    [4] src/core/utils/color.h
 //    [5] src/core/utils/types.h
@@ -41,226 +41,193 @@
 
 namespace GGUI{
     namespace INTERNAL{
-        namespace COMPACT_STRING_FLAG{
-            constexpr inline unsigned char IS_ASCII          = 1 << 0;
-            constexpr inline unsigned char IS_UNICODE        = 1 << 1;
-        }
+        constexpr std::array<std::array<char, 2>, 256> asciiToString = [] {
+            std::array<std::array<char, 2>, 256> t{};
+            for (size_t i = 0; i < 256; ++i)
+                t[i] = { static_cast<char>(i), '\0' };
+            return t;
+        }();
 
         /**
-         * @class Compact_String
-         * @brief A lightweight string class optimized for compact storage of ASCII and Unicode strings.
+         * @class compactString
+         * @brief Lightweight string view optimized for tiny tokens.
          *
-         * The Compact_String class provides an efficient way to store and manipulate short strings,
-         * optimizing for the case where the string is a single ASCII character. For longer strings,
-         * it stores a pointer to a null-terminated C-style string. The class uses a std::variant to
-         * hold either a single character or a pointer to a string, and maintains the size of the string.
+         * `compactString` is a small, trivially copyable wrapper around a `const char*` and a byte length.
+         * It is used heavily by `superString` to store many small fragments without allocating.
          *
-         * Key Features:
-         * - Stores either a single ASCII character or a pointer to a C-style string.
-         * - Provides constructors for ASCII characters, C-style strings, and explicit size/force Unicode.
-         * - Offers fast type and content checks for ASCII and Unicode representations.
-         * - Supports subscript operator for character access.
-         * - Utility methods for getting and setting ASCII/Unicode data.
-         * - Designed for use in scenarios where memory efficiency and fast type checks are important.
+         * Storage model:
+         * - For single-byte values (characters), it points into the static `asciiToString` lookup table.
+         * - For C-strings, it points to the provided memory and computes the length once.
+         * - For externally sized buffers, it can be constructed with an explicit byte length.
          *
-         * Usage Notes:
-         * - The default constructor is intended only for resizing containers and should not be used directly.
-         * - The class does not manage the lifetime of external string data; ensure that any pointer passed
-         *   to the class remains valid for the lifetime of the Compact_String instance.
-         * - The class is constexpr-friendly for compile-time usage where possible.
+         * Lifetime:
+         * - This type does not own memory.
+         * - Any pointer passed in must outlive the `compactString` and all of its consumers.
+         *
+         * Encoding:
+         * - `size` is measured in bytes and may represent UTF-8 byte length when used with text.
          */
         class compactString{
         public:
-            std::variant<char, const char*> text;
-            unsigned int size = 0;
+            const char* text = nullptr;
+            size_t size = 0;
 
             /**
-             * @brief Empty constructor for the Compact_String class. This is only used for resizing a vector of Compact_Strings, and should not be used directly.
-             * @warning Do not use this constructor directly, as it will not initialize the Data property.
-             * This constructor initializes a Compact_String object with default values.
+             * @brief Default constructor.
+             *
+             * Creates an empty `compactString` (`text == nullptr`, `size == 0`).
+             *
+             * @note This is commonly used by containers (e.g., `std::array`) that value-initialize elements.
              */
             constexpr compactString() = default;
 
             /**
-             * @brief Default copy constructor for Compact_String.
-             *
-             * Creates a new Compact_String object as a copy of an existing one.
-             * This constructor performs a member-wise copy of the source object.
-             *
-             * @param other The Compact_String instance to copy from.
+             * @brief Copy constructor.
+             * @param other Source view.
              */
             constexpr compactString(const compactString&) = default;
 
             /**
-             * @brief Move constructor for Compact_String.
+             * @brief Move constructor.
+             * @param other Source view.
              *
-             * Constructs a new Compact_String by transferring the resources from another
-             * Compact_String instance. The source object is left in a valid but unspecified state.
-             *
-             * @param other The Compact_String instance to move from.
+             * @note Moving is equivalent to copying because the type is non-owning.
              */
             constexpr compactString(compactString&&) = default;
 
             /**
-             * @brief Default copy assignment operator for Compact_String.
-             *
-             * Assigns the contents of another Compact_String to this one.
-             * The default implementation performs a member-wise copy of all fields.
-             *
-             * @param other The Compact_String instance to copy from.
-             * @return Reference to this Compact_String after assignment.
+             * @brief Copy assignment.
+             * @param other Source view.
+             * @return `*this`.
              */
             constexpr compactString& operator=(const compactString&) = default;
 
             /**
-             * @brief Default move assignment operator for Compact_String.
+             * @brief Move assignment.
+             * @param other Source view.
+             * @return `*this`.
              *
-             * Allows assigning the contents of another Compact_String to this one using move semantics.
-             * The default implementation efficiently transfers resources from the source object,
-             * leaving it in a valid but unspecified state.
-             *
-             * @return Reference to this Compact_String after assignment.
+             * @note Moving is equivalent to copying because the type is non-owning.
              */
             constexpr compactString& operator=(compactString&&) = default;
 
             /**
-             * @brief Constructs a Compact_String object from a C-style string.
-             * 
-             * This constructor initializes the Compact_String object by determining the length of the input string.
-             * If the length of the string is greater than 1, it stores the string data in Unicode_Data.
-             * If the length of the string is 1 or less, it stores the single character in Ascii_Data.
-             * 
-             * @param data A pointer to a null-terminated C-style string.
+             * @brief Construct from a null-terminated C-string.
+             *
+             * Computes the byte length up-front.
+             *
+             * Special case:
+             * - If the computed length is 0 (i.e., `""`), this will point at the static `"\0"` from
+             *   `asciiToString[0]` and set `size = 1`.
+             *
+             * @param data Null-terminated string pointer. May be null.
              */
             constexpr compactString(const char* data){
-                // Store the string as Unicode data if its length is greater than 1.
-                // Store the single character as ASCII data.
-                size_t length = getLength(data);
+                size_t tmpSize = getLength(data);
 
-                // Check for the most cases
-                length > 1 ?    // Transfer larger than single char strings
-                    setUnicode(data) : 
-                    length == 1 ?   // Handle single character strings and zero length strings
-                        setAscii(data[0]) : 
-                        setAscii('\0'); // Handle empty string case
-
+                if (tmpSize == 0) { //  If the given string is something like this: "\0", point to the global array at zero index.
+                    text = asciiToString[0].data();
+                    size = 1;   // {"\0", "\0"};
+                }
+                else {
+                    text = data;
+                    size = tmpSize;
+                }
             }
 
             /**
-             * @brief Constructs a Compact_String object with a single ASCII character.
-             * 
-             * This constructor initializes the Compact_String with a single character.
-             * The character is stored in the Ascii_Data member of the Data union, and
-             * the Size is set to 1.
-             * 
-             * @param data The ASCII character to initialize the Compact_String with.
+             * @brief Construct a single-byte character view.
+             * @param data Character to represent.
+             *
+             * Points into `asciiToString` and sets `size = 1`.
              */
-            constexpr compactString(const char data) : text(data){
-                size = 1;
+            constexpr compactString(char data) : text(asciiToString[static_cast<unsigned char>(data)].data()), size(1) {}
+
+            /**
+             * @brief Construct from a pointer and size.
+             *
+             * Use this for buffers that are not necessarily null-terminated (e.g., UTF-8 fragments).
+             *
+             * @param data Pointer to character data (not owned).
+             * @param Size Byte length to use when `forceUnicode` is true.
+             * @param forceUnicode If true, `size` is taken from `Size`; otherwise, `size` is computed by
+             *        scanning for a null terminator.
+             */
+            constexpr compactString(const char* data, const size_t Size, const bool forceUnicode = false){
+                text = data;
+                
+                if (forceUnicode) size = Size;
+                else size = getLength(text);
             }
 
             /**
-             * @brief Constructs a Compact_String object.
-             * 
-             * This constructor initializes a Compact_String object with the given data and size.
-             * It determines the storage format based on the size of the data and the Force_Unicode flag.
-             * 
-             * @param data A pointer to the character data to be stored.
-             * @param size The size of the character data.
-             * @param Force_Unicode A boolean flag indicating whether to force the data to be stored as Unicode.
-             *                       Defaults to false.
-             * 
-             * If the size of the data is greater than 1 or if Force_Unicode is true, the data is stored as Unicode.
-             * Otherwise, the data is stored as a single ASCII character.
+             * @brief Check whether this represents the given null-terminated C-string.
+             *
+             * @param other Null-terminated string to compare against.
+             * @return True if this is a multi-byte string view (`size > 1`) and `strcmp(text, other) == 0`.
+             *
+             * @note This intentionally returns false for single-character views.
              */
-            constexpr compactString(const char* data, const unsigned int Size, const bool forceUnicode = false){
-                // Determine data storage based on size and Force_Unicode flag.
-                // Store as Unicode data if size is greater than 1 or forced.
-                // Store as a single ASCII character.
-                (Size > 1 || forceUnicode) ? 
-                setUnicode(data) : 
-                setAscii(data[0]);
-
-                // If force unicode has been issued, then the size is probably a non-unicode standard size of zero or one, so we need to override the size.
-                if (forceUnicode)
-                    size = Size;
-            }
-
-            /**
-             * @brief Checks if a specific UTF flag is set.
-             * @param cs_flag The UTF flag to check.
-             * @return True if the flag is set, otherwise false.
-             */
-            constexpr bool is(unsigned char cs_flag) const {
-                return (
-                    cs_flag == COMPACT_STRING_FLAG::IS_ASCII && std::holds_alternative<char>(text)
-                ) || (
-                    cs_flag == COMPACT_STRING_FLAG::IS_UNICODE && std::holds_alternative<const char*>(text)
-                ) ? true : false;
-            }
-
-            // Fast comparison of type and content
             constexpr bool is(const char* other) const {
-                return is(COMPACT_STRING_FLAG::IS_UNICODE) ? std::strcmp(std::get<const char*>(text), other) == 0 : false;
-            }
-
-            // Fast comparison of type and content
-            constexpr bool is(char other) const {
-                return is(COMPACT_STRING_FLAG::IS_ASCII) ? std::get<char>(text) == other : false;
+                return size > 1 && text && std::strcmp(text, other) == 0;
             }
 
             /**
-             * @brief Overloaded subscript operator to access character at a given index.
-             * 
-             * This operator allows access to the character at the specified index.
-             * If the size of the string is greater than 1, it returns the character
-             * from the Unicode data. If the size is 1, it returns the ASCII data.
-             * 
-             * @param index The index of the character to access.
-             * @return char The character at the specified index.
+             * @brief Check whether this represents the given character.
+             * @param other Character to compare against.
+             * @return True if this is a single-byte view (`size == 1`) and the byte matches.
+             */
+            constexpr bool is(char other) const {
+                return size == 1 && text && text[0] == other;
+            }
+
+            /**
+             * @brief Safe byte access.
+             * @param index Byte index to read.
+             * @return The byte at `index`, or `'\0'` if out of bounds or `text` is null.
+             *
+             * @note This is byte-oriented; it does not decode UTF-8 codepoints.
              */
             constexpr char operator[](int index) const {
-                return ((unsigned)index >= size || index < 0) ? 
+                return ((unsigned)index >= size || index < 0 || !text) ? 
                     '\0' : // Return null character if index is out of bounds.
-                    (is(COMPACT_STRING_FLAG::IS_UNICODE) ? std::get<const char*>(text)[index] : std::get<char>(text));  // Return the character from Unicode or ASCII data.
+                    text[index];
             }
 
-            constexpr const char* getUnicode(bool force = false) const {
-                // If the size is greater than 1, return the Unicode data.
-                // Otherwise, return a pointer to the ASCII data.
-                return is(COMPACT_STRING_FLAG::IS_UNICODE) || force ? 
-                    std::get<const char*>(text) : 
-                    nullptr;
+            /**
+             * @brief Replace this view with a single-byte character.
+             * @param val Character to represent.
+             */
+            constexpr void set(char val) {
+                size = 1;
+                text = asciiToString[static_cast<unsigned char>(val)].data();
             }
 
-            constexpr char getAscii() const {
-                // If the size is 1, return the ASCII data.
-                // Otherwise, return a null character.
-                return is(COMPACT_STRING_FLAG::IS_ASCII) ? 
-                    std::get<char>(text) : 
-                    '\0';
-            }
-
-            constexpr void setUnicode(const char* Text) {
-                // Set the Text to the Unicode data.
-                text = std::variant<char, const char*>(Text);
-                size = getLength(Text); // Update the size based on the new string.
-            }
-
-            constexpr void setAscii(const char Text) {
-                // Set the Text to the ASCII data.
-                text = std::variant<char, const char*>(Text);
-                size = 1; // Update the size to 1 since it's a single character.
+            /**
+             * @brief Replace this view with a null-terminated C-string.
+             * @param val Null-terminated string pointer. May be null.
+             */
+            constexpr void set(const char* val) {
+                text = val;
+                size = getLength(val);
             }
             
             /**
-             * @brief Checks if the UTF object has a default text.
-             * @return true if the UTF object has a default text, false otherwise.
+             * @brief Check whether this view uses the sentinel "default text" representation.
+             *
+             * In this codebase, a non-empty string starting with a space (`' '`) is sometimes used as a
+             * sentinel for "default"/"unset" UI text.
+             *
+             * @return True if non-empty and the first byte is `' '`.
              */
             constexpr bool hasDefaultText() const {
-                return is(COMPACT_STRING_FLAG::IS_ASCII) ? std::get<char>(text) == ' ' : std::get<const char*>(text)[0] == ' ';
+                return !empty() && text && text[0] == ' ';
             }
 
+            /**
+             * @brief Check whether this view is empty.
+             * @return True when `size == 0`.
+             */
             constexpr bool empty() const {
                 // Check if the Compact_String is empty.
                 // An empty Compact_String has a size of 0.
@@ -269,13 +236,10 @@ namespace GGUI{
 
         protected:
             /**
-             * @brief Computes the length of a null-terminated C-string at compile time.
+             * @brief Compute the byte length of a null-terminated C-string.
              *
-             * This constexpr function iterates through the input string until it encounters
-             * the null terminator ('\0'), counting the number of characters.
-             *
-             * @param str Pointer to the null-terminated C-string.
-             * @return The number of characters in the string, excluding the null terminator.
+             * @param str Pointer to a null-terminated string.
+             * @return Number of bytes before the first `'\0'`. Returns 0 when `str` is null.
              */
             constexpr size_t getLength(const char* str) {
                 size_t length = 0;
@@ -289,41 +253,66 @@ namespace GGUI{
             }
         };
 
+
         /**
-         * @class Super_String
-         * @brief A container class for efficiently managing and concatenating multiple Compact_String objects.
+         * @class superString
+         * @brief Fixed-capacity fragment buffer for efficient string assembly.
          *
-         * The Super_String class provides a fixed-size array of Compact_String objects, allowing for efficient
-         * storage, addition, and concatenation of strings and characters. It maintains an internal index to track
-         * the current number of stored elements and a liquefied size representing the total number of characters
-         * across all stored strings. The class supports various methods for adding strings, characters, and other
-         * Super_String instances, as well as clearing its contents and converting the stored data into a single
-         * std::string.
+         * `superString` stores up to `maxSize` non-owning string fragments (`compactString`).
+         * It is designed to build output strings with minimal allocations by:
+         * - storing many tiny tokens (often 1-byte) as views,
+         * - keeping a running total byte length (`liquefiedSize`),
+         * - optionally operating over a caller-provided fragment window.
          *
-         * @tparam maxSize The maximum number of Compact_String objects that can be stored in the Super_String.
+         * Lifetime/ownership:
+         * - Fragment text is never owned by `superString` (it stores views).
+         * - If you use external storage via `remap()` / external constructor, that memory must outlive
+         *   the `superString` instance.
          *
-         * @note This class is designed for performance and memory efficiency, making it suitable for scenarios
-         *       where frequent string concatenation and manipulation are required.
+         * Encoding:
+         * - All sizes are byte lengths. When used with UTF-8, `liquefiedSize` is the UTF-8 byte count.
          */
         template<std::size_t maxSize>
         class superString{
         public:
-            // Data points either to inlineStorage (default) or an external window provided by fastVector.
+            /**
+             * @brief Active storage pointer.
+             *
+             * Points either to the internal inline storage (`inlineStorage`) or to an externally provided
+             * contiguous window (see `superString(compactString*)` and `remap()`).
+             *
+             * @note This class does not own external windows.
+             */
             compactString* data = nullptr;
-            unsigned int currentIndex = 0;
-            unsigned int liquefiedSize = 0;
+
+            /**
+             * @brief Number of fragments currently stored in `data`.
+             *
+             * Valid range: `[0, maxSize]` for inline storage.
+             */
+            size_t currentIndex = 0;
+
+            /**
+             * @brief Total number of bytes across all stored fragments.
+             *
+             * This is the sum of `data[i].size` for all added fragments.
+             */
+            size_t liquefiedSize = 0;
 
         protected:
-            // Inline storage to avoid dynamic allocations for the common case.
+            /**
+             * @brief Inline storage to avoid dynamic allocations.
+             *
+             * The default constructor sets `data = inlineStorage.data()`.
+             */
             std::array<compactString, maxSize> inlineStorage{};
         
         public:
 
             /**
-             * @brief Default constexpr constructor for the Super_String class.
+             * @brief Construct an empty `superString` using inline storage.
              *
-             * Initializes a Super_String object with default values at compile time.
-             * This constructor does not perform any custom initialization logic.
+             * Initializes `data` to point at `inlineStorage` and resets indices.
              */
             constexpr superString() {
                 // By default, use inline storage to avoid heap allocations.
@@ -333,12 +322,11 @@ namespace GGUI{
             }
 
             /**
-             * @brief Constructs a Super_String from an initializer list of Compact_String objects.
+             * @brief Construct from an initializer-list of fragments.
              *
-             * This constructor allows you to initialize a Super_String with a list of Compact_String
-             * instances. Each item in the initializer list is added to the Super_String using the Add method.
+             * Each item is appended in order via `add(const compactString&)`.
              *
-             * @param data An initializer list containing Compact_String objects to be added to the Super_String.
+             * @param Data Initial fragments to append.
              */
             constexpr superString(const std::initializer_list<compactString>& Data) : superString() {
                 for (const auto& item : Data) {
@@ -346,6 +334,15 @@ namespace GGUI{
                 }
             }
 
+            /**
+             * @brief Construct an empty `superString` over an external fragment window.
+             *
+             * This is used to avoid even the inline array when some higher-level allocator provides
+             * a reusable `compactString[]` window.
+             *
+             * @param preAllocatedWindow Pointer to at least `maxSize` `compactString` slots.
+             * @warning The window is not owned; it must outlive this `superString`.
+             */
             constexpr superString(compactString* preAllocatedWindow) {
                 // Use external window memory; caller manages its lifetime.
                 data = preAllocatedWindow;
@@ -354,10 +351,27 @@ namespace GGUI{
             }
 
             /**
-             * @brief Clears the contents of the Super_String.
-             * 
-             * This function resets the current index back to the start of the vector,
-             * effectively clearing any stored data.
+             * @brief Rebind this instance to a different external window and restore state.
+             *
+             * This is effectively a “move” of the logical contents into a new backing window.
+             *
+             * @param preAllocatedWindowHead New backing array.
+             * @param preAllocatedWindowCurrentIndex Fragment count to restore.
+             * @param preAllocatedWindowLiquefiedSize Total byte length to restore.
+             * @warning This does not copy fragments; it only repoints internal pointers.
+             */
+            constexpr void remap(compactString* preAllocatedWindowHead, const size_t preAllocatedWindowCurrentIndex, const size_t preAllocatedWindowLiquefiedSize) {
+                // Use external window memory; caller manages its lifetime.
+                data = preAllocatedWindowHead;
+                currentIndex = preAllocatedWindowCurrentIndex;
+                liquefiedSize = preAllocatedWindowLiquefiedSize;
+            }
+
+            /**
+             * @brief Clear all stored fragments.
+             *
+             * Resets `currentIndex` and `liquefiedSize` to zero.
+             * Does not modify the fragment storage contents.
              */
             constexpr void clear(){
                 // Set the current index back to the start of the vector.
@@ -366,80 +380,12 @@ namespace GGUI{
             }
 
             /**
-             * @brief Adds a new string to the data vector.
-             * 
-             * This function stores the provided string in the data vector by creating a 
-             * Compact_String object from the given data and size, and then adds it to 
-             * the Data vector at the current index.
-             * 
-             * @param data Pointer to the character array containing the string to be added.
-             * @param size The size of the string to be added.
-             */
-            constexpr void add(const char* Data, const int size){
-                // Store the string in the Data vector.
-                compactString tmp = compactString(Data, size);
-                data[currentIndex++] = tmp;
-                liquefiedSize += tmp.size; // Update the liquefied size with the size of the new string.
-            }
-
-            /**
-             * @brief Adds a character to the Super_String.
-             * 
-             * This function stores the given character in the data vector
-             * and increments the current index.
-             * 
-             * @param data The character to be added to the Super_String.
-             */
-            constexpr void add(const char Data){
-                // Store the character in the data vector.
-                data[currentIndex++] = compactString(Data);
-                liquefiedSize += 1; // Update the liquefied size with the size of the new character.
-            }
-
-            /**
-             * @brief Adds the contents of another Super_String to this Super_String.
+             * @brief Append a fragment view.
              *
-             * This function appends the contents of the provided Super_String to the current
-             * Super_String. If the Expected parameter is false, the function will resize the
-             * Data vector to accommodate the additional characters.
+             * @param other Fragment to append.
              *
-             * @param other A pointer to the Super_String to be added.
-             * @param Expected A boolean flag indicating whether the reservation size is already
-             *                 expected to be sufficient. If false, the Data vector will be resized.
-             */
-            template<std::size_t OtherMaxSize>
-            constexpr void add(const superString<OtherMaxSize>* other){
-                // Copy the contents of the other Super_String into the Data vector.
-                for (unsigned int i = 0; i < other->currentIndex; i++){
-                    data[currentIndex++] = other->data[i];
-                }
-
-                liquefiedSize += other->liquefiedSize; // Update the liquefied size with the size of the new string.
-            }
-            
-            /**
-             * @brief Add the contents of another Super_String to this one.
-             * @param other The Super_String to add.
-             * @param Expected If true, the size of the Data vector will not be changed.
-             * @details This function is used to concatenate Super_Strings.
-             */
-            template<std::size_t OtherMaxSize>
-            constexpr void add(const superString<OtherMaxSize>& other){
-                // Copy the contents of the other Super_String into the Data vector.
-                for (unsigned int i = 0; i < other.currentIndex; i++){
-                    data[currentIndex++] = other.data[i];
-                }
-                
-                liquefiedSize += other.liquefiedSize; // Update the liquefied size with the size of the new string.
-            }
-
-            /**
-             * @brief Adds a Compact_String to the data vector.
-             * 
-             * This function appends the given Compact_String to the current position
-             * in the Data vector and then increments the Current_Index.
-             * 
-             * @param other The Compact_String to add to the data vector.
+             * @warning No bounds checking is performed. Exceeding the available capacity
+             *          will write out of bounds.
              */
             constexpr void add(const compactString& other){
                 // Store the Compact_String in the data vector.
@@ -448,38 +394,119 @@ namespace GGUI{
             }
 
             /**
-             * @brief Converts the Super_String object to a std::string.
-             * 
-             * This function goes through the Data vector and calculates the total size of all
-             * the strings stored in the vector. It then resizes a std::string to that size and
-             * then copies the contents of the Data vector into the std::string.
-             * 
-             * @return A std::string that contains all the strings stored in the Data vector.
+             * @brief Append a sized byte fragment.
+             *
+             * This is commonly used for UTF-8 fragments that are not null-terminated.
+             *
+             * @param Data Pointer to byte data (not owned).
+             * @param size Byte length to append.
+             *
+             * @warning No bounds checking is performed.
              */
-            std::string toString() {
-                // Resize a std::string to the total size.
-                std::string result;
-                result.resize(liquefiedSize);
+            constexpr void add(const char* Data, const int size){
+                // Store the string in the Data vector.
+                // `size` is an explicit byte length (often for UTF-8 fragments) and may not be null-terminated.
+                compactString tmp = compactString(Data, size, true);
+                add(tmp);
+            }
 
-                // Copy the contents of the Data vector into the std::string.
-                int Current_UTF_Insert_Index = 0;
-                for(unsigned int i = 0; i < currentIndex; i++){
+            /**
+             * @brief Append a single byte.
+             * @param Data Byte/character to append.
+             * @warning No bounds checking is performed.
+             */
+            constexpr void add(const char Data){
+                // Store the character in the data vector.
+                add(compactString(Data));
+            }
+
+            /**
+             * @brief Append another `superString`'s fragments (pointer overload).
+             *
+             * @tparam OtherMaxSize Source capacity.
+             * @param other Source `superString` to append.
+             *
+             * @warning No bounds checking is performed.
+             */
+            template<std::size_t OtherMaxSize>
+            constexpr void add(const superString<OtherMaxSize>* other){
+                // Copy the contents of the other Super_String into the Data vector.
+                for (size_t i = 0; i < other->currentIndex; i++){
+                    add(other->data[i]);
+                }
+            }
+            
+            /**
+             * @brief Append another `superString`'s fragments (reference overload).
+             *
+             * @tparam OtherMaxSize Source capacity.
+             * @param other Source `superString` to append.
+             *
+             * @warning No bounds checking is performed.
+             */
+            template<std::size_t OtherMaxSize>
+            constexpr void add(const superString<OtherMaxSize>& other){
+                // Copy the contents of the other Super_String into the Data vector.
+                for (size_t i = 0; i < other.currentIndex; i++){
+                    add(other.data[i]);
+                }
+            }
+
+            /**
+             * @brief Materialize all fragments into a single contiguous byte buffer (view return).
+             *
+             * Concatenates all fragments in order and returns a `compactString` view of the resulting
+             * buffer.
+             *
+             * @return A `compactString` whose `text` points to a newly allocated byte buffer and whose
+             *         `size` equals `liquefiedSize`.
+             *
+             * @warning Ownership/lifetime: this function allocates with `new[]` and returns a non-owning
+             *          view (`compactString`) that has no way to release that allocation. As written, this
+             *          is a leak unless some external convention frees the returned pointer.
+             *          Prefer `toString()` if you need an owning result.
+             */
+            inline const compactString compress() const {
+                char* header = new char[liquefiedSize];
+                compactString result(header, liquefiedSize, true);
+
+                for (size_t i = 0, pos = 0; i < currentIndex; i++) {
                     const compactString& Data = data[i];
 
                     if (Data.size == 0)
                         break;
 
-                    // Size of ones are always already loaded from memory into a char.
-                    if (Data.size > 1){
-                        // Replace the current contents of the string with the contents of the Unicode Data.
-                        result.replace(Current_UTF_Insert_Index, Data.size, Data.getUnicode());
+                    // Replace the current contents of the string with the contents of the Unicode Data.
+                    std::memcpy((char*)header + pos, Data.text, Data.size);
+                    pos += Data.size;
+                }
 
-                        Current_UTF_Insert_Index += Data.size;
-                    }
-                    else{
-                        // Add the single character to the string.
-                        result[Current_UTF_Insert_Index++] = Data.getAscii();
-                    }
+                return result;
+            }
+
+            /**
+             * @brief Materialize all fragments into an owning `std::string`.
+             *
+             * Copies all fragments in order into a single `std::string` of size `liquefiedSize`.
+             *
+             * @return Owning string containing the concatenated bytes.
+             */
+            std::string toString() const {
+                // Resize a std::string to the total size.
+                std::string result;
+                result.resize(liquefiedSize);
+
+                // Copy the contents of the Data vector into the std::string.
+                int currentUTFInsertIndex = 0;
+                for(size_t i = 0; i < currentIndex; i++){
+                    const compactString& Data = data[i];
+
+                    if (Data.size == 0)
+                        break;
+
+                    // Replace the current contents of the string with the contents of the Unicode Data.
+                    result.replace(currentUTFInsertIndex, Data.size, Data.text);
+                    currentUTFInsertIndex += Data.size;
                 }
                 return result;
             }
@@ -517,12 +544,15 @@ namespace GGUI{
 
     namespace constants{
         namespace ANSI{
-            // 1 to ESC_CODE
+            // 1 to CSI_CODE
             // 1 to Text_Color | Background_Color
             // 1 to SEPARATE
             // 1 to USE_RGB
             // 1 to SEPARATE
             constexpr unsigned int maximumNeededPreAllocationForOverHead = 1 + 1 + 1 + 1 + 1;
+
+            // 1 to maximumNeededPreAllocationForOverHead as compressed single compactString
+            constexpr unsigned int maximumNeededPreAllocationForCompressedOverHead = 1;
 
             // 1 to Red
             // 1 to SEPARATE
@@ -531,23 +561,23 @@ namespace GGUI{
             // 1 to Blue
             constexpr unsigned int maximumNeededPreAllocationForColor = 1 + 1 + 1 + 1 + 1;
             
-            // 5 to Text_Overhead
+            // 1 to Text_Overhead   (5 compressed into 1)
             // 5 to Text_Colour
             // 1 to END_COMMAND
-            // 5 to Background_Overhead
+            // 1 to Background_Overhead   (5 compressed into 1)
             // 5 to Background_Colour
             // 1 to END_COMMAND
             constexpr unsigned int maximumNeededPreAllocationForOverhead = 
-                maximumNeededPreAllocationForOverHead + maximumNeededPreAllocationForColor + 1 +
-                maximumNeededPreAllocationForOverHead + maximumNeededPreAllocationForColor + 1;
+                maximumNeededPreAllocationForCompressedOverHead + maximumNeededPreAllocationForColor + 1 +
+                maximumNeededPreAllocationForCompressedOverHead + maximumNeededPreAllocationForColor + 1;
 
             // 1 to RESET_COLOR
             constexpr unsigned int maximumNeededPreAllocationForReset = 1;
 
-            // 5 to Text_Overhead
+            // 1 to Text_Overhead   (5 compressed into 1)
             // 5 to Text_Colour
             // 1 to END_COMMAND
-            // 5 to Background_Overhead
+            // 1 to Background_Overhead   (5 compressed into 1)
             // 5 to Background_Colour
             // 1 to END_COMMAND
             // 1 to Data
@@ -570,7 +600,8 @@ namespace GGUI{
             constexpr unsigned int maximumNeededPreAllocationForSettingCursorShape = 1 + 1;
 
             // CSI (Control Sequence Introducer) sequences.
-            constexpr INTERNAL::compactString ESC_CODE = "\x1B[";      // Also known as \e[ or \o33
+            constexpr INTERNAL::compactString ESC_CODE = "\x1B";       // Also known as \e or \o33
+            constexpr INTERNAL::compactString CSI_CODE = "\x1B[";       // Also known as \e[ or \o33[
             constexpr INTERNAL::compactString SEPARATE = ';';
             constexpr INTERNAL::compactString USE_RGB = '2';
             constexpr INTERNAL::compactString END_COMMAND = 'm';
@@ -594,11 +625,11 @@ namespace GGUI{
              * @param Enable If true, enable the feature. Otherwise, disable it.
              * @return A Super_String object with the correct escape sequence to enable or disable the feature
              */
-            constexpr INTERNAL::superString<maximumNeededPreAllocationForEnablingOrDisablingPrivateSGRFeature> Enable_Private_SGR_Feature(const INTERNAL::compactString& command, bool Enable = true) { 
+            constexpr INTERNAL::superString<maximumNeededPreAllocationForEnablingOrDisablingPrivateSGRFeature> enablePrivateDECFeature(const INTERNAL::compactString& command, bool Enable = true) { 
                 INTERNAL::superString<maximumNeededPreAllocationForEnablingOrDisablingPrivateSGRFeature> Result;
 
                 // Add the escape code
-                Result.add(ESC_CODE);
+                Result.add(CSI_CODE);
 
                 // Add the private SGR telltale '?'
                 Result.add('?');
@@ -624,11 +655,11 @@ namespace GGUI{
              * @param command The command to enable
              * @return A Super_String object with the correct escape sequence to enable the feature
              */
-            constexpr INTERNAL::superString<maximumNeededPreAllocationForEnablingOrDisablingSGRFeature> Enable_SGR_Feature(const INTERNAL::compactString& command) {
+            constexpr INTERNAL::superString<maximumNeededPreAllocationForEnablingOrDisablingSGRFeature> enableSGRFeature(const INTERNAL::compactString& command) {
                 INTERNAL::superString<maximumNeededPreAllocationForEnablingOrDisablingSGRFeature> Result;
 
                 // Add the escape code
-                Result.add(ESC_CODE);
+                Result.add(CSI_CODE);
 
                 // Add the command to enable
                 Result.add(command);
@@ -640,9 +671,9 @@ namespace GGUI{
             }
 
             // Build a cursor shape control sequence: ESC[ <Ps> q where fragment already provides "<digit> q".
-            constexpr INTERNAL::superString<maximumNeededPreAllocationForSettingCursorShape> Set_Cursor_Shape(const INTERNAL::compactString& fragment){
+            constexpr INTERNAL::superString<maximumNeededPreAllocationForSettingCursorShape> setCursorShape(const INTERNAL::compactString& fragment){
                 INTERNAL::superString<maximumNeededPreAllocationForSettingCursorShape> Result;
-                Result.add(ESC_CODE);
+                Result.add(CSI_CODE);
                 Result.add(fragment);
                 return Result;
             }
@@ -680,9 +711,11 @@ namespace GGUI{
             constexpr INTERNAL::compactString DEFAULT_BACKGROUND_COLOR = "49";                 // Sets the default color.
 
             // Private SGR codes
-            constexpr INTERNAL::compactString REPORT_MOUSE_HIGHLIGHTS = "1000";
+            constexpr INTERNAL::compactString SET_X10_MOUSE = "9";
+            constexpr INTERNAL::compactString SET_VT200_MOUSE = "1000";
             constexpr INTERNAL::compactString REPORT_MOUSE_BUTTON_WHILE_MOVING = "1002";
             constexpr INTERNAL::compactString REPORT_MOUSE_ALL_EVENTS = "1003";
+            constexpr INTERNAL::compactString EXTEND_TO_SGR_MODE = "1006";
 
             constexpr INTERNAL::compactString MOUSE_CURSOR = "25";
             constexpr INTERNAL::compactString SCREEN_CAPTURE = "47"; // 47l = restores screen, 47h = saves screen
@@ -726,32 +759,35 @@ namespace GGUI{
 
             constexpr const INTERNAL::compactString toCompactTable[256] = {
                 INTERNAL::compactString("0", 1), INTERNAL::compactString("1", 1), INTERNAL::compactString("2", 1), INTERNAL::compactString("3", 1), INTERNAL::compactString("4", 1), INTERNAL::compactString("5", 1), INTERNAL::compactString("6", 1), INTERNAL::compactString("7", 1), INTERNAL::compactString("8", 1), INTERNAL::compactString("9", 1),
-                INTERNAL::compactString("10", 2), INTERNAL::compactString("11", 2), INTERNAL::compactString("12", 2), INTERNAL::compactString("13", 2), INTERNAL::compactString("14", 2), INTERNAL::compactString("15", 2), INTERNAL::compactString("16", 2), INTERNAL::compactString("17", 2), INTERNAL::compactString("18", 2), INTERNAL::compactString("19", 2),
-                INTERNAL::compactString("20", 2), INTERNAL::compactString("21", 2), INTERNAL::compactString("22", 2), INTERNAL::compactString("23", 2), INTERNAL::compactString("24", 2), INTERNAL::compactString("25", 2), INTERNAL::compactString("26", 2), INTERNAL::compactString("27", 2), INTERNAL::compactString("28", 2), INTERNAL::compactString("29", 2),
-                INTERNAL::compactString("30", 2), INTERNAL::compactString("31", 2), INTERNAL::compactString("32", 2), INTERNAL::compactString("33", 2), INTERNAL::compactString("34", 2), INTERNAL::compactString("35", 2), INTERNAL::compactString("36", 2), INTERNAL::compactString("37", 2), INTERNAL::compactString("38", 2), INTERNAL::compactString("39", 2),
-                INTERNAL::compactString("40", 2), INTERNAL::compactString("41", 2), INTERNAL::compactString("42", 2), INTERNAL::compactString("43", 2), INTERNAL::compactString("44", 2), INTERNAL::compactString("45", 2), INTERNAL::compactString("46", 2), INTERNAL::compactString("47", 2), INTERNAL::compactString("48", 2), INTERNAL::compactString("49", 2),
-                INTERNAL::compactString("50", 2), INTERNAL::compactString("51", 2), INTERNAL::compactString("52", 2), INTERNAL::compactString("53", 2), INTERNAL::compactString("54", 2), INTERNAL::compactString("55", 2), INTERNAL::compactString("56", 2), INTERNAL::compactString("57", 2), INTERNAL::compactString("58", 2), INTERNAL::compactString("59", 2),
-                INTERNAL::compactString("60", 2), INTERNAL::compactString("61", 2), INTERNAL::compactString("62", 2), INTERNAL::compactString("63", 2), INTERNAL::compactString("64", 2), INTERNAL::compactString("65", 2), INTERNAL::compactString("66", 2), INTERNAL::compactString("67", 2), INTERNAL::compactString("68", 2), INTERNAL::compactString("69", 2),
-                INTERNAL::compactString("70", 2), INTERNAL::compactString("71", 2), INTERNAL::compactString("72", 2), INTERNAL::compactString("73", 2), INTERNAL::compactString("74", 2), INTERNAL::compactString("75", 2), INTERNAL::compactString("76", 2), INTERNAL::compactString("77", 2), INTERNAL::compactString("78", 2), INTERNAL::compactString("79", 2),
-                INTERNAL::compactString("80", 2), INTERNAL::compactString("81", 2), INTERNAL::compactString("82", 2), INTERNAL::compactString("83", 2), INTERNAL::compactString("84", 2), INTERNAL::compactString("85", 2), INTERNAL::compactString("86", 2), INTERNAL::compactString("87", 2), INTERNAL::compactString("88", 2), INTERNAL::compactString("89", 2),
-                INTERNAL::compactString("90", 2), INTERNAL::compactString("91", 2), INTERNAL::compactString("92", 2), INTERNAL::compactString("93", 2), INTERNAL::compactString("94", 2), INTERNAL::compactString("95", 2), INTERNAL::compactString("96", 2), INTERNAL::compactString("97", 2), INTERNAL::compactString("98", 2), INTERNAL::compactString("99", 2),
-                INTERNAL::compactString("100", 3), INTERNAL::compactString("101", 3), INTERNAL::compactString("102", 3), INTERNAL::compactString("103", 3), INTERNAL::compactString("104", 3), INTERNAL::compactString("105", 3), INTERNAL::compactString("106", 3), INTERNAL::compactString("107", 3), INTERNAL::compactString("108", 3), INTERNAL::compactString("109", 3),
-                INTERNAL::compactString("110", 3), INTERNAL::compactString("111", 3), INTERNAL::compactString("112", 3), INTERNAL::compactString("113", 3), INTERNAL::compactString("114", 3), INTERNAL::compactString("115", 3), INTERNAL::compactString("116", 3), INTERNAL::compactString("117", 3), INTERNAL::compactString("118", 3), INTERNAL::compactString("119", 3),
-                INTERNAL::compactString("120", 3), INTERNAL::compactString("121", 3), INTERNAL::compactString("122", 3), INTERNAL::compactString("123", 3), INTERNAL::compactString("124", 3), INTERNAL::compactString("125", 3), INTERNAL::compactString("126", 3), INTERNAL::compactString("127", 3), INTERNAL::compactString("128", 3), INTERNAL::compactString("129", 3),
-                INTERNAL::compactString("130", 3), INTERNAL::compactString("131", 3), INTERNAL::compactString("132", 3), INTERNAL::compactString("133", 3), INTERNAL::compactString("134", 3), INTERNAL::compactString("135", 3), INTERNAL::compactString("136", 3), INTERNAL::compactString("137", 3), INTERNAL::compactString("138", 3), INTERNAL::compactString("139", 3),
-                INTERNAL::compactString("140", 3), INTERNAL::compactString("141", 3), INTERNAL::compactString("142", 3), INTERNAL::compactString("143", 3), INTERNAL::compactString("144", 3), INTERNAL::compactString("145", 3), INTERNAL::compactString("146", 3), INTERNAL::compactString("147", 3), INTERNAL::compactString("148", 3), INTERNAL::compactString("149", 3),
-                INTERNAL::compactString("150", 3), INTERNAL::compactString("151", 3), INTERNAL::compactString("152", 3), INTERNAL::compactString("153", 3), INTERNAL::compactString("154", 3), INTERNAL::compactString("155", 3), INTERNAL::compactString("156", 3), INTERNAL::compactString("157", 3), INTERNAL::compactString("158", 3), INTERNAL::compactString("159", 3),
-                INTERNAL::compactString("160", 3), INTERNAL::compactString("161", 3), INTERNAL::compactString("162", 3), INTERNAL::compactString("163", 3), INTERNAL::compactString("164", 3), INTERNAL::compactString("165", 3), INTERNAL::compactString("166", 3), INTERNAL::compactString("167", 3), INTERNAL::compactString("168", 3), INTERNAL::compactString("169", 3),
-                INTERNAL::compactString("170", 3), INTERNAL::compactString("171", 3), INTERNAL::compactString("172", 3), INTERNAL::compactString("173", 3), INTERNAL::compactString("174", 3), INTERNAL::compactString("175", 3), INTERNAL::compactString("176", 3), INTERNAL::compactString("177", 3), INTERNAL::compactString("178", 3), INTERNAL::compactString("179", 3),
-                INTERNAL::compactString("180", 3), INTERNAL::compactString("181", 3), INTERNAL::compactString("182", 3), INTERNAL::compactString("183", 3), INTERNAL::compactString("184", 3), INTERNAL::compactString("185", 3), INTERNAL::compactString("186", 3), INTERNAL::compactString("187", 3), INTERNAL::compactString("188", 3), INTERNAL::compactString("189", 3),
-                INTERNAL::compactString("190", 3), INTERNAL::compactString("191", 3), INTERNAL::compactString("192", 3), INTERNAL::compactString("193", 3), INTERNAL::compactString("194", 3), INTERNAL::compactString("195", 3), INTERNAL::compactString("196", 3), INTERNAL::compactString("197", 3), INTERNAL::compactString("198", 3), INTERNAL::compactString("199", 3),
-                INTERNAL::compactString("200", 3), INTERNAL::compactString("201", 3), INTERNAL::compactString("202", 3), INTERNAL::compactString("203", 3), INTERNAL::compactString("204", 3), INTERNAL::compactString("205", 3), INTERNAL::compactString("206", 3), INTERNAL::compactString("207", 3), INTERNAL::compactString("208", 3), INTERNAL::compactString("209", 3),
-                INTERNAL::compactString("210", 3), INTERNAL::compactString("211", 3), INTERNAL::compactString("212", 3), INTERNAL::compactString("213", 3), INTERNAL::compactString("214", 3), INTERNAL::compactString("215", 3), INTERNAL::compactString("216", 3), INTERNAL::compactString("217", 3), INTERNAL::compactString("218", 3), INTERNAL::compactString("219", 3),
-                INTERNAL::compactString("220", 3), INTERNAL::compactString("221", 3), INTERNAL::compactString("222", 3), INTERNAL::compactString("223", 3), INTERNAL::compactString("224", 3), INTERNAL::compactString("225", 3), INTERNAL::compactString("226", 3), INTERNAL::compactString("227", 3), INTERNAL::compactString("228", 3), INTERNAL::compactString("229", 3),
-                INTERNAL::compactString("230", 3), INTERNAL::compactString("231", 3), INTERNAL::compactString("232", 3), INTERNAL::compactString("233", 3), INTERNAL::compactString("234", 3), INTERNAL::compactString("235", 3), INTERNAL::compactString("236", 3), INTERNAL::compactString("237", 3), INTERNAL::compactString("238", 3), INTERNAL::compactString("239", 3),
-                INTERNAL::compactString("240", 3), INTERNAL::compactString("241", 3), INTERNAL::compactString("242", 3), INTERNAL::compactString("243", 3), INTERNAL::compactString("244", 3), INTERNAL::compactString("245", 3), INTERNAL::compactString("246", 3), INTERNAL::compactString("247", 3), INTERNAL::compactString("248", 3), INTERNAL::compactString("249", 3),
-                INTERNAL::compactString("250", 3), INTERNAL::compactString("251", 3), INTERNAL::compactString("252", 3), INTERNAL::compactString("253", 3), INTERNAL::compactString("254", 3), INTERNAL::compactString("255", 3)
+                INTERNAL::compactString("10", 2, true), INTERNAL::compactString("11", 2, true), INTERNAL::compactString("12", 2, true), INTERNAL::compactString("13", 2, true), INTERNAL::compactString("14", 2, true), INTERNAL::compactString("15", 2, true), INTERNAL::compactString("16", 2, true), INTERNAL::compactString("17", 2, true), INTERNAL::compactString("18", 2, true), INTERNAL::compactString("19", 2, true),
+                INTERNAL::compactString("20", 2, true), INTERNAL::compactString("21", 2, true), INTERNAL::compactString("22", 2, true), INTERNAL::compactString("23", 2, true), INTERNAL::compactString("24", 2, true), INTERNAL::compactString("25", 2, true), INTERNAL::compactString("26", 2, true), INTERNAL::compactString("27", 2, true), INTERNAL::compactString("28", 2, true), INTERNAL::compactString("29", 2, true),
+                INTERNAL::compactString("30", 2, true), INTERNAL::compactString("31", 2, true), INTERNAL::compactString("32", 2, true), INTERNAL::compactString("33", 2, true), INTERNAL::compactString("34", 2, true), INTERNAL::compactString("35", 2, true), INTERNAL::compactString("36", 2, true), INTERNAL::compactString("37", 2, true), INTERNAL::compactString("38", 2, true), INTERNAL::compactString("39", 2, true),
+                INTERNAL::compactString("40", 2, true), INTERNAL::compactString("41", 2, true), INTERNAL::compactString("42", 2, true), INTERNAL::compactString("43", 2, true), INTERNAL::compactString("44", 2, true), INTERNAL::compactString("45", 2, true), INTERNAL::compactString("46", 2, true), INTERNAL::compactString("47", 2, true), INTERNAL::compactString("48", 2, true), INTERNAL::compactString("49", 2, true),
+                INTERNAL::compactString("50", 2, true), INTERNAL::compactString("51", 2, true), INTERNAL::compactString("52", 2, true), INTERNAL::compactString("53", 2, true), INTERNAL::compactString("54", 2, true), INTERNAL::compactString("55", 2, true), INTERNAL::compactString("56", 2, true), INTERNAL::compactString("57", 2, true), INTERNAL::compactString("58", 2, true), INTERNAL::compactString("59", 2, true),
+                INTERNAL::compactString("60", 2, true), INTERNAL::compactString("61", 2, true), INTERNAL::compactString("62", 2, true), INTERNAL::compactString("63", 2, true), INTERNAL::compactString("64", 2, true), INTERNAL::compactString("65", 2, true), INTERNAL::compactString("66", 2, true), INTERNAL::compactString("67", 2, true), INTERNAL::compactString("68", 2, true), INTERNAL::compactString("69", 2, true),
+                INTERNAL::compactString("70", 2, true), INTERNAL::compactString("71", 2, true), INTERNAL::compactString("72", 2, true), INTERNAL::compactString("73", 2, true), INTERNAL::compactString("74", 2, true), INTERNAL::compactString("75", 2, true), INTERNAL::compactString("76", 2, true), INTERNAL::compactString("77", 2, true), INTERNAL::compactString("78", 2, true), INTERNAL::compactString("79", 2, true),
+                INTERNAL::compactString("80", 2, true), INTERNAL::compactString("81", 2, true), INTERNAL::compactString("82", 2, true), INTERNAL::compactString("83", 2, true), INTERNAL::compactString("84", 2, true), INTERNAL::compactString("85", 2, true), INTERNAL::compactString("86", 2, true), INTERNAL::compactString("87", 2, true), INTERNAL::compactString("88", 2, true), INTERNAL::compactString("89", 2, true),
+                INTERNAL::compactString("90", 2, true), INTERNAL::compactString("91", 2, true), INTERNAL::compactString("92", 2, true), INTERNAL::compactString("93", 2, true), INTERNAL::compactString("94", 2, true), INTERNAL::compactString("95", 2, true), INTERNAL::compactString("96", 2, true), INTERNAL::compactString("97", 2, true), INTERNAL::compactString("98", 2, true), INTERNAL::compactString("99", 2, true),
+                INTERNAL::compactString("100", 3, true), INTERNAL::compactString("101", 3, true), INTERNAL::compactString("102", 3, true), INTERNAL::compactString("103", 3, true), INTERNAL::compactString("104", 3, true), INTERNAL::compactString("105", 3, true), INTERNAL::compactString("106", 3, true), INTERNAL::compactString("107", 3, true), INTERNAL::compactString("108", 3, true), INTERNAL::compactString("109", 3, true),
+                INTERNAL::compactString("110", 3, true), INTERNAL::compactString("111", 3, true), INTERNAL::compactString("112", 3, true), INTERNAL::compactString("113", 3, true), INTERNAL::compactString("114", 3, true), INTERNAL::compactString("115", 3, true), INTERNAL::compactString("116", 3, true), INTERNAL::compactString("117", 3, true), INTERNAL::compactString("118", 3, true), INTERNAL::compactString("119", 3, true),
+                INTERNAL::compactString("120", 3, true), INTERNAL::compactString("121", 3, true), INTERNAL::compactString("122", 3, true), INTERNAL::compactString("123", 3, true), INTERNAL::compactString("124", 3, true), INTERNAL::compactString("125", 3, true), INTERNAL::compactString("126", 3, true), INTERNAL::compactString("127", 3, true), INTERNAL::compactString("128", 3, true), INTERNAL::compactString("129", 3, true),
+                INTERNAL::compactString("130", 3, true), INTERNAL::compactString("131", 3, true), INTERNAL::compactString("132", 3, true), INTERNAL::compactString("133", 3, true), INTERNAL::compactString("134", 3, true), INTERNAL::compactString("135", 3, true), INTERNAL::compactString("136", 3, true), INTERNAL::compactString("137", 3, true), INTERNAL::compactString("138", 3, true), INTERNAL::compactString("139", 3, true),
+                INTERNAL::compactString("140", 3, true), INTERNAL::compactString("141", 3, true), INTERNAL::compactString("142", 3, true), INTERNAL::compactString("143", 3, true), INTERNAL::compactString("144", 3, true), INTERNAL::compactString("145", 3, true), INTERNAL::compactString("146", 3, true), INTERNAL::compactString("147", 3, true), INTERNAL::compactString("148", 3, true), INTERNAL::compactString("149", 3, true),
+                INTERNAL::compactString("150", 3, true), INTERNAL::compactString("151", 3, true), INTERNAL::compactString("152", 3, true), INTERNAL::compactString("153", 3, true), INTERNAL::compactString("154", 3, true), INTERNAL::compactString("155", 3, true), INTERNAL::compactString("156", 3, true), INTERNAL::compactString("157", 3, true), INTERNAL::compactString("158", 3, true), INTERNAL::compactString("159", 3, true),
+                INTERNAL::compactString("160", 3, true), INTERNAL::compactString("161", 3, true), INTERNAL::compactString("162", 3, true), INTERNAL::compactString("163", 3, true), INTERNAL::compactString("164", 3, true), INTERNAL::compactString("165", 3, true), INTERNAL::compactString("166", 3, true), INTERNAL::compactString("167", 3, true), INTERNAL::compactString("168", 3, true), INTERNAL::compactString("169", 3, true),
+                INTERNAL::compactString("170", 3, true), INTERNAL::compactString("171", 3, true), INTERNAL::compactString("172", 3, true), INTERNAL::compactString("173", 3, true), INTERNAL::compactString("174", 3, true), INTERNAL::compactString("175", 3, true), INTERNAL::compactString("176", 3, true), INTERNAL::compactString("177", 3, true), INTERNAL::compactString("178", 3, true), INTERNAL::compactString("179", 3, true),
+                INTERNAL::compactString("180", 3, true), INTERNAL::compactString("181", 3, true), INTERNAL::compactString("182", 3, true), INTERNAL::compactString("183", 3, true), INTERNAL::compactString("184", 3, true), INTERNAL::compactString("185", 3, true), INTERNAL::compactString("186", 3, true), INTERNAL::compactString("187", 3, true), INTERNAL::compactString("188", 3, true), INTERNAL::compactString("189", 3, true),
+                INTERNAL::compactString("190", 3, true), INTERNAL::compactString("191", 3, true), INTERNAL::compactString("192", 3, true), INTERNAL::compactString("193", 3, true), INTERNAL::compactString("194", 3, true), INTERNAL::compactString("195", 3, true), INTERNAL::compactString("196", 3, true), INTERNAL::compactString("197", 3, true), INTERNAL::compactString("198", 3, true), INTERNAL::compactString("199", 3, true),
+                INTERNAL::compactString("200", 3, true), INTERNAL::compactString("201", 3, true), INTERNAL::compactString("202", 3, true), INTERNAL::compactString("203", 3, true), INTERNAL::compactString("204", 3, true), INTERNAL::compactString("205", 3, true), INTERNAL::compactString("206", 3, true), INTERNAL::compactString("207", 3, true), INTERNAL::compactString("208", 3, true), INTERNAL::compactString("209", 3, true),
+                INTERNAL::compactString("210", 3, true), INTERNAL::compactString("211", 3, true), INTERNAL::compactString("212", 3, true), INTERNAL::compactString("213", 3, true), INTERNAL::compactString("214", 3, true), INTERNAL::compactString("215", 3, true), INTERNAL::compactString("216", 3, true), INTERNAL::compactString("217", 3, true), INTERNAL::compactString("218", 3, true), INTERNAL::compactString("219", 3, true),
+                INTERNAL::compactString("220", 3, true), INTERNAL::compactString("221", 3, true), INTERNAL::compactString("222", 3, true), INTERNAL::compactString("223", 3, true), INTERNAL::compactString("224", 3, true), INTERNAL::compactString("225", 3, true), INTERNAL::compactString("226", 3, true), INTERNAL::compactString("227", 3, true), INTERNAL::compactString("228", 3, true), INTERNAL::compactString("229", 3, true),
+                INTERNAL::compactString("230", 3, true), INTERNAL::compactString("231", 3, true), INTERNAL::compactString("232", 3, true), INTERNAL::compactString("233", 3, true), INTERNAL::compactString("234", 3, true), INTERNAL::compactString("235", 3, true), INTERNAL::compactString("236", 3, true), INTERNAL::compactString("237", 3, true), INTERNAL::compactString("238", 3, true), INTERNAL::compactString("239", 3, true),
+                INTERNAL::compactString("240", 3, true), INTERNAL::compactString("241", 3, true), INTERNAL::compactString("242", 3, true), INTERNAL::compactString("243", 3, true), INTERNAL::compactString("244", 3, true), INTERNAL::compactString("245", 3, true), INTERNAL::compactString("246", 3, true), INTERNAL::compactString("247", 3, true), INTERNAL::compactString("248", 3, true), INTERNAL::compactString("249", 3, true),
+                INTERNAL::compactString("250", 3, true), INTERNAL::compactString("251", 3, true), INTERNAL::compactString("252", 3, true), INTERNAL::compactString("253", 3, true), INTERNAL::compactString("254", 3, true), INTERNAL::compactString("255", 3, true)
             };
+
+            constexpr const INTERNAL::superString<2> SAVE_CURSOR_POSITION = {ESC_CODE, toCompactTable[7]};
+            constexpr const INTERNAL::superString<2> RESTORE_CURSOR_POSITION = {ESC_CODE, toCompactTable[8]};
         }
 
         constexpr unsigned long long NONE = (unsigned long long)1 << 0;
@@ -895,18 +931,18 @@ namespace GGUI{
 #include <string>
 #include <limits>
 #include <math.h>
-#include <stdint.h>
+#include <cstdint>
 #include <ostream>
 
 
 namespace GGUI{
     class RGB{
     public:
-        unsigned char Red = 0;
-        unsigned char Green = 0;
-        unsigned char Blue = 0;
+        unsigned char red = 0;
+        unsigned char green = 0;
+        unsigned char blue = 0;
 
-        constexpr RGB(unsigned char r, unsigned char g, unsigned char b) : Red(r), Green(g), Blue(b) {}
+        constexpr RGB(unsigned char r, unsigned char g, unsigned char b) : red(r), green(g), blue(b) {}
 
         constexpr RGB() = default;
 
@@ -915,21 +951,22 @@ namespace GGUI{
          *
          * @param Result The result string.
          */
-        constexpr void getColourAsSuperString(INTERNAL::superString<constants::ANSI::maximumNeededPreAllocationForColor>* Result) const {
+        // constexpr void getColourAsSuperString(INTERNAL::superString<constants::ANSI::maximumNeededPreAllocationForColor>* Result) const {
+        constexpr void getColourAsSuperString(INTERNAL::superString<constants::ANSI::maximumNeededPreAllocationForEncodedSuperString>* Result) const {
             // Add the red value to the string
-            Result->add(constants::ANSI::toCompactTable[Red]);
+            Result->add(constants::ANSI::toCompactTable[red]);
             
             // Add the separator to the string
             Result->add(constants::ANSI::SEPARATE);
             
             // Add the green value to the string
-            Result->add(constants::ANSI::toCompactTable[Green]);
+            Result->add(constants::ANSI::toCompactTable[green]);
             
             // Add the separator to the string
             Result->add(constants::ANSI::SEPARATE);
             
             // Add the blue value to the string
-            Result->add(constants::ANSI::toCompactTable[Blue]);
+            Result->add(constants::ANSI::toCompactTable[blue]);
         }
     
         /**
@@ -942,7 +979,7 @@ namespace GGUI{
          * @param Is_Text_Color A boolean to determine if the codes are for text color (true) or background color (false).
          */
         constexpr void getOverHeadAsSuperString(INTERNAL::superString<GGUI::constants::ANSI::maximumNeededPreAllocationForOverHead>* Result, const bool Is_Text_Color = true) const {
-            Result->add(constants::ANSI::ESC_CODE);
+            Result->add(constants::ANSI::CSI_CODE);
             
             Is_Text_Color ? 
                 Result->add(constants::ANSI::TEXT_COLOR) :
@@ -956,7 +993,7 @@ namespace GGUI{
         constexpr INTERNAL::superString<GGUI::constants::ANSI::maximumNeededPreAllocationForOverHead> getOverHeadAsSuperString(const bool Is_Text_Color = true) const {
             INTERNAL::superString<GGUI::constants::ANSI::maximumNeededPreAllocationForOverHead> Result;
 
-            Result.add(constants::ANSI::ESC_CODE);
+            Result.add(constants::ANSI::CSI_CODE);
             
             Is_Text_Color ? 
                 Result.add(constants::ANSI::TEXT_COLOR) :
@@ -971,7 +1008,7 @@ namespace GGUI{
     
         constexpr bool operator==(const RGB& Other) const{
             // only take the bits from the first 3 unsigned chars
-            return Red == Other.Red && Green == Other.Green && Blue == Other.Blue;
+            return red == Other.red && green == Other.green && blue == Other.blue;
         }
 
         constexpr bool operator!=(const RGB& Other) const{
@@ -979,25 +1016,45 @@ namespace GGUI{
         }
 
         constexpr RGB operator+(const RGB& Other) const{
-            return RGB(Red + Other.Red, Green + Other.Green, Blue + Other.Blue);
+            return RGB(red + Other.red, green + Other.green, blue + Other.blue);
         }
 
         constexpr RGB operator*(const float Scalar) const{
-            return RGB((unsigned char)((float)Red * Scalar), (unsigned char)((float)Green * Scalar), (unsigned char)((float)Blue * Scalar));
+            return RGB((unsigned char)((float)red * Scalar), (unsigned char)((float)green * Scalar), (unsigned char)((float)blue * Scalar));
         }
 
         constexpr RGB operator!() const{
-            return RGB(UINT8_MAX - Red, UINT8_MAX - Green, UINT8_MAX - Blue);
+            return RGB(UINT8_MAX - red, UINT8_MAX - green, UINT8_MAX - blue);
         }
 
-        constexpr void add(const RGB& other, float opacity){
-            // Calculate the reverse alpha
-            float Reverse_Alpha = 1.0f - opacity;
+        // Integer-only alpha blend: opacity in [0..255] where 0 = transparent, 255 = fully opaque.
+        // Uses /256 (shift) for speed, with a special-case that maps 255 -> 256 so full opacity is exact.
+        constexpr void add(const RGB& other, unsigned char opacity){
+            if (opacity == 0) return;
+            if (opacity == UINT8_MAX){
+                red = other.red;
+                green = other.green;
+                blue = other.blue;
+                return;
+            }
 
-            // Blend the colors based on the opacity
-            Red = (unsigned char)((float)Red * Reverse_Alpha + (float)other.Red * opacity);
-            Green = (unsigned char)((float)Green * Reverse_Alpha + (float)other.Green * opacity);
-            Blue = (unsigned char)((float)Blue * Reverse_Alpha + (float)other.Blue * opacity);
+            red = computeAlpha(red, other.red, opacity);
+            green = computeAlpha(green, other.green, opacity);
+            blue = computeAlpha(blue, other.blue, opacity);
+        }
+
+    private:
+        constexpr inline unsigned char computeAlpha(unsigned char A, unsigned char B, unsigned char opacity) {
+            constexpr unsigned int UINT8_MAX_AS_256 = UINT8_MAX + 1;            // 256
+            constexpr unsigned int UINT8_HALF = UINT8_MAX_AS_256 / 2;           // 128
+
+            #ifndef UINT8_WIDTH // For some compilers in windows side do not have cstdint::UINT8_WIDTH defined.
+            constexpr unsigned int UINT8_WIDTH = 8;
+            #endif
+
+            const unsigned int alpha = (unsigned int)opacity;                   // 1..254
+            const unsigned int inv = UINT8_MAX_AS_256 - alpha;
+            return (unsigned char)(((unsigned int)A * inv + (unsigned int)B * alpha + UINT8_HALF) >> UINT8_WIDTH);
         }
     };
 
@@ -1186,9 +1243,9 @@ namespace GGUI{
     }
 
     inline std::ostream& operator<<(std::ostream& os, const GGUI::RGB& color) {
-        os << "RGB(" << static_cast<int>(color.Red) << ", "
-           << static_cast<int>(color.Green) << ", "
-           << static_cast<int>(color.Blue) << ")";
+        os << "RGB(" << static_cast<int>(color.red) << ", "
+           << static_cast<int>(color.green) << ", "
+           << static_cast<int>(color.blue) << ")";
         return os;
     }
 }
@@ -1209,8 +1266,8 @@ namespace GGUI{
     // Literal type
     class FVector2{
     public:
-        float X = 0;
-        float Y = 0;
+        float x = 0;
+        float y = 0;
 
         /**
          * @brief Default constructor
@@ -1220,8 +1277,7 @@ namespace GGUI{
          * @param x The x-coordinate. Default is 0.0f.
          * @param y The y-coordinate. Default is 0.0f.
          */
-        constexpr FVector2(float x = 0.0f, float y = 0.0f) noexcept
-            : X(x), Y(y) {}
+        constexpr FVector2(float X = 0.0f, float Y = 0.0f) noexcept : x(X), y(Y) {}
 
         /**
          * @brief Copy constructor
@@ -1270,7 +1326,7 @@ namespace GGUI{
          * @return A new FVector2 with the added float.
          */
         constexpr FVector2 operator+(float num) const noexcept {
-            return FVector2(X + num, Y + num);
+            return FVector2(x + num, y + num);
         }
 
         /**
@@ -1282,7 +1338,7 @@ namespace GGUI{
          * @return A new FVector2 with the subtracted float.
          */
         constexpr FVector2 operator-(float num) const noexcept {
-            return FVector2(X - num, Y - num);
+            return FVector2(x - num, y - num);
         }
 
 
@@ -1295,14 +1351,14 @@ namespace GGUI{
          * @return A new FVector2 with the multiplied float.
          */
         constexpr FVector2 operator*(float num) const noexcept {
-            return FVector2(X * num, Y * num);
+            return FVector2(x * num, y * num);
         }
     };
     
     // Literal type
     class FVector3 : public FVector2 {
     public:
-        float Z = 0;
+        float z = 0;
 
         /**
          * @brief Default constructor
@@ -1313,8 +1369,7 @@ namespace GGUI{
          * @param y The y-coordinate. Default is 0.0f.
          * @param z The z-coordinate. Default is 0.0f.
          */
-        constexpr FVector3(float x = 0.0f, float y = 0.0f, float z = 0.0f) noexcept
-            : FVector2(x, y), Z(z) {}
+        constexpr FVector3(float X = 0.0f, float Y = 0.0f, float Z = 0.0f) noexcept : FVector2(X, Y), z(Z) {}
 
         /**
          * @brief Copy constructor
@@ -1363,7 +1418,7 @@ namespace GGUI{
          * @return A new FVector3 with the added float.
          */
         constexpr FVector3 operator+(float num) const noexcept {
-            return FVector3(X + num, Y + num, Z + num);
+            return FVector3(x + num, y + num, z + num);
         }
 
 
@@ -1376,7 +1431,7 @@ namespace GGUI{
          * @return A new FVector3 with the subtracted float.
          */
         constexpr FVector3 operator-(float num) const noexcept {
-            return FVector3(X - num, Y - num, Z - num);
+            return FVector3(x - num, y - num, z - num);
         }
 
         /**
@@ -1388,7 +1443,7 @@ namespace GGUI{
          * @return A new FVector3 with the multiplied float.
          */
         constexpr FVector3 operator*(float num) const noexcept {
-            return FVector3(X * num, Y * num, Z * num);
+            return FVector3(x * num, y * num, z * num);
         }
 
         /**
@@ -1400,7 +1455,7 @@ namespace GGUI{
          * @return A new FVector3 with the added values.
          */
         constexpr FVector3 operator+(const FVector3& other) const noexcept {
-            return FVector3(X + other.X, Y + other.Y, Z + other.Z);
+            return FVector3(x + other.x, y + other.y, z + other.z);
         }
 
         /**
@@ -1412,7 +1467,7 @@ namespace GGUI{
          * @return A new FVector3 with the subtracted values.
          */
         constexpr FVector3 operator-(const FVector3& other) const noexcept {
-            return FVector3(X - other.X, Y - other.Y, Z - other.Z);
+            return FVector3(x - other.x, y - other.y, z - other.z);
         }
 
         /**
@@ -1424,14 +1479,14 @@ namespace GGUI{
          * @return A new FVector3 with the component-wise multiplied values.
          */
         constexpr FVector3 operator*(const FVector3& other) const noexcept {
-            return FVector3(X * other.X, Y * other.Y, Z * other.Z);
+            return FVector3(x * other.x, y * other.y, z * other.z);
         }
     };
 
     class IVector2{
     public:
-        short X = 0;  //Horizontal
-        short Y = 0;  //Vertical
+        int x = 0;  //Horizontal
+        int y = 0;  //Vertical
 
         /**
          * @brief Default constructor
@@ -1441,8 +1496,7 @@ namespace GGUI{
          * @param x The x-coordinate. Default is 0.
          * @param y The y-coordinate. Default is 0.
          */
-        constexpr IVector2(short x = 0, short y = 0) noexcept
-            : X(x), Y(y) {}
+        constexpr IVector2(int X = 0, int Y = 0) noexcept : x(X), y(Y) {}
 
         /**
          * @brief Copy constructor
@@ -1488,8 +1542,8 @@ namespace GGUI{
          * @param other The pointer to the IVector2 to add.
          */
         constexpr void operator+=(IVector2* other) noexcept {
-            X += other->X;
-            Y += other->Y;
+            x += other->x;
+            y += other->y;
         }
 
         /**
@@ -1500,8 +1554,8 @@ namespace GGUI{
          * @param other The FVector2 to add.
          */
         constexpr void operator+=(FVector2 other) noexcept {
-            X += static_cast<short>(other.X);
-            Y += static_cast<short>(other.Y);
+            x += static_cast<int>(other.x);
+            y += static_cast<int>(other.y);
         }
 
         /**
@@ -1512,8 +1566,8 @@ namespace GGUI{
          * @param other The IVector2 to add.
          */
         constexpr void operator+=(IVector2 other) noexcept {
-            X += other.X;  // Add the x-coordinate
-            Y += other.Y;  // Add the y-coordinate
+            x += other.x;  // Add the x-coordinate
+            y += other.y;  // Add the y-coordinate
         }
 
         /**
@@ -1525,7 +1579,7 @@ namespace GGUI{
          * @return A new IVector2 with the added values.
          */
         constexpr IVector2 operator+(const IVector2& other) const noexcept {
-            return IVector2(X + other.X, Y + other.Y);
+            return IVector2(x + other.x, y + other.y);
         }
 
         /**
@@ -1537,7 +1591,7 @@ namespace GGUI{
          * @return A new IVector2 with the subtracted values.
          */
         constexpr IVector2 operator-(const IVector2& other) const noexcept {
-            return IVector2(X - other.X, Y - other.Y);
+            return IVector2(x - other.x, y - other.y);
         }
 
         /**
@@ -1549,7 +1603,7 @@ namespace GGUI{
          * @return A new IVector2 with the multiplied float.
          */
         constexpr IVector2 operator*(float num) const noexcept {
-            return IVector2(static_cast<short>(X * num), static_cast<short>(Y * num)); // Multiply each coordinate by num
+            return IVector2(static_cast<int>(x * num), static_cast<int>(y * num)); // Multiply each coordinate by num
         }
 
         /**
@@ -1561,7 +1615,7 @@ namespace GGUI{
          * @return True if the IVector2s are equal, otherwise false.
          */
         constexpr bool operator==(const IVector2& other) const noexcept {
-            return X == other.X && Y == other.Y; // Check if the coordinates are equal
+            return x == other.x && y == other.y; // Check if the coordinates are equal
         }
 
         /**
@@ -1573,7 +1627,7 @@ namespace GGUI{
          * @return False if the IVector2s are equal, otherwise true.
          */
         constexpr bool operator!=(const IVector2& other) const noexcept {
-            return X != other.X || Y != other.Y; // Check if the coordinates are not equal
+            return x != other.x || y != other.y; // Check if the coordinates are not equal
         }
 
         /**
@@ -1584,13 +1638,13 @@ namespace GGUI{
          * @return A string representation of the IVector2.
          */
         std::string To_String() const {
-            return std::to_string(X) + ", " + std::to_string(Y);
+            return std::to_string(x) + ", " + std::to_string(y);
         }
     };
 
     class IVector3 : public IVector2{
     public:
-        short Z = 0;  //priority (the higher the more likely it will be at top).
+        int z = 0;  //priority (the higher the more likely it will be at top).
 
         /**
          * @brief Default constructor
@@ -1601,8 +1655,7 @@ namespace GGUI{
          * @param y The y-coordinate. Default is 0.
          * @param z The z-coordinate. Default is 0.
          */
-        constexpr IVector3(short x = 0, short y = 0, short z = 0) noexcept
-            : IVector2(x, y), Z(z) {}
+        constexpr IVector3(int X = 0, int Y = 0, int Z = 0) noexcept : IVector2(X, Y), z(Z) {}
 
         /**
          * @brief Copy constructor
@@ -1650,9 +1703,9 @@ namespace GGUI{
          * @param other The pointer to the IVector3 to add.
          */
         constexpr void operator+=(IVector3* other) noexcept {
-            X += other->X;
-            Y += other->Y;
-            Z += other->Z;
+            x += other->x;
+            y += other->y;
+            z += other->z;
         }
 
         /**
@@ -1663,9 +1716,9 @@ namespace GGUI{
          * @param other The IVector3 to add.
          */
         constexpr void operator+=(IVector3 other) noexcept {
-            X += other.X;  // Add the x-coordinate
-            Y += other.Y;  // Add the y-coordinate
-            Z += other.Z;  // Add the z-coordinate
+            x += other.x;  // Add the x-coordinate
+            y += other.y;  // Add the y-coordinate
+            z += other.z;  // Add the z-coordinate
         }
 
         /**
@@ -1677,19 +1730,19 @@ namespace GGUI{
          * @return A new IVector3 with the added values.
          */
         constexpr IVector3 operator+(const IVector3& other) const noexcept {
-            return IVector3(X + other.X, Y + other.Y, Z + other.Z);
+            return IVector3(x + other.x, y + other.y, z + other.z);
         }
 
         constexpr IVector3 operator-(const IVector3& other) const noexcept {
-            return IVector3(X - other.X, Y - other.Y, Z - other.Z);
+            return IVector3(x - other.x, y - other.y, z - other.z);
         }
 
         constexpr IVector3 operator+(int constant) const noexcept {
-            return IVector3(X + constant, Y + constant, Z + constant); // Add the constant to each coordinate
+            return IVector3(x + constant, y + constant, z + constant); // Add the constant to each coordinate
         }
 
         constexpr IVector3 operator-(int constant) const noexcept {
-            return IVector3(X - constant, Y - constant, Z - constant); // Subtract the constant from each coordinate
+            return IVector3(x - constant, y - constant, z - constant); // Subtract the constant from each coordinate
         }
 
 
@@ -1702,7 +1755,7 @@ namespace GGUI{
          * @return A new IVector3 with the multiplied float.
          */
         constexpr IVector3 operator*(float num) const noexcept {
-            return IVector3(X * num, Y * num, Z * num); // Multiply each coordinate by num
+            return IVector3(static_cast<int>(x * num), static_cast<int>(y * num), static_cast<int>(z * num)); // Multiply each coordinate by num
         }
 
         /**
@@ -1714,7 +1767,7 @@ namespace GGUI{
          * @return True if the IVector3s are equal, otherwise false.
          */
         constexpr bool operator==(const IVector3& other) const noexcept {
-            return X == other.X && Y == other.Y && Z == other.Z; // Check if the coordinates are equal
+            return x == other.x && y == other.y && z == other.z; // Check if the coordinates are equal
         }
 
         /**
@@ -1726,7 +1779,7 @@ namespace GGUI{
          * @return False if the IVector3s are equal, otherwise true.
          */
         constexpr bool operator!=(const IVector3& other) const noexcept {
-            return X != other.X || Y != other.Y || Z != other.Z; // Check if the coordinates are not equal
+            return x != other.x || y != other.y || z != other.z; // Check if the coordinates are not equal
         }
 
         /**
@@ -1738,7 +1791,7 @@ namespace GGUI{
          * @return A string representation of the IVector3.
          */
         std::string To_String(){
-            return std::to_string(X) + ", " + std::to_string(Y) + ", " + std::to_string(Z);
+            return std::to_string(x) + ", " + std::to_string(y) + ", " + std::to_string(z);
         }
     
         /**
@@ -1750,7 +1803,7 @@ namespace GGUI{
          * @return A string representation of the IVector3.
          */
         std::string To_String() const {
-            return std::to_string(X) + ", " + std::to_string(Y) + ", " + std::to_string(Z);
+            return std::to_string(x) + ", " + std::to_string(y) + ", " + std::to_string(z);
         }
     };
 
@@ -1762,8 +1815,8 @@ namespace GGUI{
 
     class input : public event{
     public:
-        unsigned short X = 0;
-        unsigned short Y = 0;
+        unsigned short x = 0;
+        unsigned short y = 0;
         char data = 0;
 
         // The input information like the character written.
@@ -1773,16 +1826,14 @@ namespace GGUI{
         }
 
         input(IVector3 c, unsigned long long t){
-            X = (unsigned short )c.X;
-            Y = (unsigned short )c.Y;
+            x = (unsigned short )c.x;
+            y = (unsigned short )c.y;
             criteria = t;
         }
     };
 
     class action : public event{
     public:
-        class element* host = nullptr;
-
         std::function<bool(GGUI::event*)> Job;
         
         std::string ID; 
@@ -1791,14 +1842,6 @@ namespace GGUI{
         action(unsigned long long Criteria, std::function<bool(GGUI::event*)> job, std::string id){
             criteria = Criteria;
             Job = job;
-            host = nullptr;
-            ID = id;
-        }
-
-        action(unsigned long long Criteria, std::function<bool(GGUI::event*)> job, class element* Host, std::string id){
-            criteria = Criteria;
-            Job = job;
-            host = Host;
             ID = id;
         }
     };
@@ -1870,7 +1913,8 @@ namespace GGUI{
             STATE = 1 << 4,         // This is for Switches that based on their state display one symbol differently.
             MOVE = 1 << 5,          // Enabled, to signal absolute position caching.
             FINALIZE = 1 << 6,      // This is used to signal that the element is finalized and the stylings are successfully been embedded.
-            RESET = 1 << 7,         // This is to remove redundant STRETCH flagging.
+            RESET = 1 << 7,         // This is to make stretch less slaggy flagging.
+            NOT_RENDERED = 1 << 8,  // This is a single time flag, noting when the first render pass occurs for the element, triggers On_Render().
         };
 
         /**
@@ -2031,7 +2075,7 @@ namespace GGUI{
         };
 
         namespace LOGGER{
-            extern void Log(std::string Text);
+            extern void log(std::string Text);
         }
 
         namespace atomic{
@@ -2065,7 +2109,7 @@ namespace GGUI{
                     try {
                         job(*data);
                     } catch (...) {
-                        INTERNAL::LOGGER::Log("Failed to execute the function!");
+                        INTERNAL::LOGGER::log("Failed to execute the function!");
                     }
                 }
 
@@ -2098,12 +2142,11 @@ namespace GGUI{
         }
     
         // This class contains carry flags from previous cycle cross-thread, if another thread had some un-finished things when another thread was already running.
-        class Carry{
+        class carry{
         public:
-            bool Resize = false;
-            bool Terminate = false;     // Signals the shutdown of subthreads.
+            bool resize = false;
 
-            ~Carry() = default;
+            ~carry() = default;
         };
     }
 }
@@ -2236,7 +2279,7 @@ namespace GGUI{
          * @param data The character to set as the text.
          */
         constexpr void setText(const char data) {
-            compactString::setAscii(data);
+            compactString::set(data);
         }
 
         /**
@@ -2244,7 +2287,7 @@ namespace GGUI{
          * @param data The null-terminated string to set as the text.
          */
         constexpr void setText(const char* data) {
-            compactString::setUnicode(data);
+            compactString::set(data);
         }
 
         /**
@@ -2347,7 +2390,7 @@ namespace GGUI{
         constexpr bool isNonDiscriminantScalar(const P value, const float scalar);
 
         template<typename P>
-        constexpr std::string toString(const P value);
+        std::string toString(const P value);
 
         template<typename T>
         class value {
@@ -2486,7 +2529,7 @@ namespace GGUI{
             constexpr value<T> operator-(const value<T>& other){
                 if (evaluationType != other.evaluationType){
                     // TODO: add capability to call reportStack in Styles.h
-                    INTERNAL::LOGGER::Log("Cannot substract two different eval type values!");
+                    INTERNAL::LOGGER::log("Cannot substract two different eval type values!");
                     EXIT(1);
                     return false;   // for warnings.
                 }
@@ -2498,7 +2541,7 @@ namespace GGUI{
                     case INTERNAL::EVALUATION_TYPE::PERCENTAGE:
                         return value<T>(percentage - other.percentage);
                     default:
-                        INTERNAL::LOGGER::Log("Evaluation type: " + std::to_string((int)evaluationType) + " not supported!");
+                        INTERNAL::LOGGER::log("Evaluation type: " + std::to_string((int)evaluationType) + " not supported!");
                         EXIT(1);
                         return value<T>(0);
                     }
@@ -2506,7 +2549,7 @@ namespace GGUI{
             }
 
             /**
-             * Evaluate function
+             * evaluate function
              * @param parental_value The value to be multiplied by. Only used if the evaluation type is PERCENTAGE.
              * 
              * This function is used to evaluate the value of the variant based on the evaluation type.
@@ -2514,7 +2557,7 @@ namespace GGUI{
              * If the evaluation type is PERCENTAGE, the parental value is multiplied by the data and the result is returned.
              * If the evaluation type is not supported, an error message is printed and the data is returned without any modification.
              */
-            constexpr void Evaluate(const T parental_value) {
+            constexpr void evaluate(const T parental_value) {
                 switch (evaluationType) {
                     case INTERNAL::EVALUATION_TYPE::DEFAULT:
                         // If the evaluation type is DEFAULT then just return the data without any modification
@@ -2525,13 +2568,13 @@ namespace GGUI{
 
                         #if GGUI_DEBUG
                         if (isNonDiscriminantScalar<T>(parental_value, percentage)){
-                            INTERNAL::LOGGER::Log("Percentage value of: '" + std::to_string(percentage) + "' causes non-discriminant results with: '" + toString(parental_value) + "'.");
+                            INTERNAL::LOGGER::log("Percentage value of: '" + std::to_string(percentage) + "' causes non-discriminant results with: '" + toString(parental_value) + "'.");
                         }
                         #endif
 
                         return;
                     default:
-                        INTERNAL::LOGGER::Log("Evaluation type not supported!");
+                        INTERNAL::LOGGER::log("Evaluation type not supported!");
                         // If the evaluation type is not supported then just return the data without any modification
                         return;
                 }
@@ -2563,13 +2606,13 @@ namespace GGUI{
              * Get the evaluation type of the variant.
              * @return The evaluation type of the variant.
              */
-            constexpr INTERNAL::EVALUATION_TYPE Get_Type() { return evaluationType; }
+            constexpr INTERNAL::EVALUATION_TYPE getType() { return evaluationType; }
 
             /**
              * Get the evaluation type of the variant.
              * @return The evaluation type of the variant.
              */
-            constexpr INTERNAL::EVALUATION_TYPE Get_Type() const { return evaluationType; }
+            constexpr INTERNAL::EVALUATION_TYPE getType() const { return evaluationType; }
 
             /**
              * @brief Direct access to the underlying data of the variant.
@@ -2579,7 +2622,7 @@ namespace GGUI{
              * @throws std::bad_variant_access If the requested type doesn't match the type of the data.
              */
             template<typename P>
-            constexpr P& Direct() { 
+            constexpr P& direct() { 
                 return data;
             }
 
@@ -2589,7 +2632,7 @@ namespace GGUI{
              * @details This sets the value of the variant to the provided value.
              *          The evaluation type is set to INTERNAL::EVALUATION_TYPE::DEFAULT.
              */
-            constexpr void Set(const T d) {
+            constexpr void set(const T d) {
                 data = d;
                 evaluationType = INTERNAL::EVALUATION_TYPE::DEFAULT;
             }
@@ -2599,7 +2642,7 @@ namespace GGUI{
              * @param value The value to set the variant to.
              * @details This sets the value of the variant to the provided value, and sets the evaluation type to INTERNAL::EVALUATION_TYPE::PERCENTAGE.
              */
-            constexpr void Set(const float f){
+            constexpr void set(const float f){
                 percentage = f;
                 evaluationType = INTERNAL::EVALUATION_TYPE::PERCENTAGE;
             }
@@ -2676,12 +2719,12 @@ namespace GGUI{
             }
 
             /**
-             * @brief Evaluates the style value based on a given Styling object.
+             * @brief evaluates the style value based on a given Styling object.
              * @param host The Styling object to evaluate the style value with.
              * @details This function is used to evaluate the style value based on a given Styling object.
              *          It is called by the Styling class when the style value needs to be evaluated.
              *          The function is responsible for setting the Status variable to the evaluated status.
-             *          The function is also responsible for setting the Value variable to the evaluated value.
+             *          The function is also responsible for setting the value variable to the evaluated value.
              *          The function should be implemented by the derived classes to perform the evaluation.
              */
             virtual void evaluate([[maybe_unused]] const styling* self, [[maybe_unused]] const styling* host) {};
@@ -2723,7 +2766,7 @@ namespace GGUI{
             constexpr RGBValue(const float Value, const VALUE_STATE Default = VALUE_STATE::VALUE) 
                 : styleBase(Default), color(Value, INTERNAL::EVALUATION_TYPE::PERCENTAGE) {}
             
-            constexpr RGBValue() = default;
+            constexpr RGBValue() : styleBase(), color(RGB(0,0,0)) {}
 
             /**
              * @brief Destructor for the RGB_VALUE class.
@@ -2803,7 +2846,7 @@ namespace GGUI{
             INTERNAL::STAIN_TYPE embedValue([[maybe_unused]] styling* host, element* owner) override;
 
             /**
-             * @brief Evaluate the RGB_VALUE.
+             * @brief evaluate the RGB_VALUE.
              * @param owner The styling owner to evaluate against.
              * @details This is a pure virtual function that subclasses must implement to define how the RGB value is evaluated.
              */
@@ -2823,7 +2866,7 @@ namespace GGUI{
             constexpr boolValue(const bool Value, const VALUE_STATE Default = VALUE_STATE::VALUE) 
                 : styleBase(Default), value(Value) {}
             
-            constexpr boolValue() = default;
+            constexpr boolValue() : styleBase(), value(false) {}
 
             /**
              * @brief Destructor for the BOOL_VALUE class.
@@ -2861,7 +2904,7 @@ namespace GGUI{
              *          setting the status to VALUE_STATE::VALUE.
              */
             constexpr boolValue& operator=(const bool other){
-                value = other; // Assign the boolean value to the Value member
+                value = other; // Assign the boolean value to the value member
                 status = VALUE_STATE::VALUE; // Set the status to indicate a valid value
                 return *this; // Return a reference to this object
             }
@@ -2876,7 +2919,7 @@ namespace GGUI{
                 : styleBase(other.status), value(other.value) {}
             
             /**
-             * @brief Evaluate the BOOL_VALUE.
+             * @brief evaluate the BOOL_VALUE.
              * @param owner The styling owner to evaluate against.
              * @details This function is a no-op for BOOL_VALUE, as it does not have any dynamically computable values.
              */
@@ -2901,7 +2944,7 @@ namespace GGUI{
              * @param value The floating point value to initialize the NUMBER_VALUE with.
              * @param Default The default value state of the NUMBER_VALUE.
              * @details This constructor initializes the NUMBER_VALUE with the provided float value and default state.
-             *          The value is converted to a percentage (multiplying by 0.01) and stored as a float in the Value member.
+             *          The value is converted to a percentage (multiplying by 0.01) and stored as a float in the value member.
              */
             constexpr numberValue(float Value, VALUE_STATE Default = VALUE_STATE::VALUE) : styleBase(Default), number(Value, INTERNAL::EVALUATION_TYPE::PERCENTAGE){}
 
@@ -2917,7 +2960,7 @@ namespace GGUI{
             
             constexpr numberValue(unsigned int Value, VALUE_STATE Default = VALUE_STATE::VALUE) : styleBase(Default), number((signed int)Value, INTERNAL::EVALUATION_TYPE::DEFAULT){}
 
-            constexpr numberValue() = default;
+            constexpr numberValue() : styleBase(), number(0) {}
 
             /**
              * @brief Destructor for NUMBER_VALUE.
@@ -2997,10 +3040,10 @@ namespace GGUI{
             INTERNAL::STAIN_TYPE embedValue(styling* host, element* owner) override;
             
             /**
-             * @brief Evaluate the RGB_VALUE.
+             * @brief evaluate the RGB_VALUE.
              * @param owner The styling owner to evaluate against.
              * @details This is a pure virtual function that subclasses must implement to define how the RGB value is evaluated.
-             *          When called, the function should evaluate the RGB value based on the owner object and set the Value property accordingly.
+             *          When called, the function should evaluate the RGB value based on the owner object and set the value property accordingly.
              */
             inline void evaluate([[maybe_unused]] const styling* self, [[maybe_unused]] const styling* owner) override {};
 
@@ -3009,7 +3052,7 @@ namespace GGUI{
              * @return A reference to the value of this NUMBER_VALUE object.
              * @details This function returns a reference to the value of this NUMBER_VALUE object, allowing it to be directly accessed and modified.
              */
-            constexpr int& direct() { return number.Direct<int>(); }
+            constexpr int& direct() { return number.direct<int>(); }
         };
 
         template<typename T>
@@ -3026,7 +3069,7 @@ namespace GGUI{
              */
             constexpr enumValue(const T Value, const VALUE_STATE Default = VALUE_STATE::VALUE) : styleBase(Default), value(Value){}
 
-            constexpr enumValue() = default;
+            constexpr enumValue() : styleBase(), value(static_cast<T>(0)) {}
 
             /**
              * @brief Destructor for ENUM_VALUE.
@@ -3079,7 +3122,7 @@ namespace GGUI{
                 : styleBase(other.status), value(other.value) {}
                         
             /**
-             * @brief Evaluate the style.
+             * @brief evaluate the style.
              * @param owner The Styling object that owns this style.
              * @details This function is used to evaluate the style with the given Styling object.
              *          It is used to support dynamic values like percentage depended values.
@@ -3102,9 +3145,9 @@ namespace GGUI{
         
         class vectorValue : public styleBase{
         public:
-            value<int> X = 0;
-            value<int> Y = 0;
-            value<int> Z = 0;
+            value<int> x = 0;
+            value<int> y = 0;
+            value<int> z = 0;
 
             /**
              * @brief Construct a new Vector object using constexpr.
@@ -3114,12 +3157,12 @@ namespace GGUI{
              * @details This constructor initializes a Vector object with the given parameters,
              *          using constexpr for compile-time evaluation.
              */
-            constexpr vectorValue(const GGUI::IVector3 value, const VALUE_STATE Default = VALUE_STATE::VALUE) : styleBase(Default), 
-                X(value.X, INTERNAL::EVALUATION_TYPE::DEFAULT), Y(value.Y, INTERNAL::EVALUATION_TYPE::DEFAULT), Z(value.Z, INTERNAL::EVALUATION_TYPE::DEFAULT){}
+            constexpr vectorValue(const GGUI::IVector3 Value, const VALUE_STATE Default = VALUE_STATE::VALUE) : styleBase(Default), 
+                x(Value.x, INTERNAL::EVALUATION_TYPE::DEFAULT), y(Value.y, INTERNAL::EVALUATION_TYPE::DEFAULT), z(Value.z, INTERNAL::EVALUATION_TYPE::DEFAULT){}
             
-            constexpr vectorValue(const value<int> x, const value<int> y, const value<int> z = 0, const VALUE_STATE Default = VALUE_STATE::VALUE) : styleBase(Default), X(x), Y(y), Z(z){}
+            constexpr vectorValue(const value<int> X, const value<int> Y, const value<int> Z = 0, const VALUE_STATE Default = VALUE_STATE::VALUE) : styleBase(Default), x(X), y(Y), z(Z){}
 
-            constexpr vectorValue() = default;
+            constexpr vectorValue() : styleBase(), x(0), y(0), z(0) {}
 
             /**
              * @brief Destructor for Vector.
@@ -3143,9 +3186,9 @@ namespace GGUI{
             constexpr vectorValue& operator=(const vectorValue& other){
                 // Only copy the information if the other is enabled.
                 if (other.status >= status){
-                    X = other.X;
-                    Y = other.Y;
-                    Z = other.Z;
+                    x = other.x;
+                    y = other.y;
+                    z = other.z;
 
                     status = other.status;
                 }
@@ -3160,9 +3203,9 @@ namespace GGUI{
              *          It sets the status to VALUE_STATE::VALUE and the value to the given IVector3 object.
              */
             constexpr vectorValue& operator=(const GGUI::IVector3 other){
-                X = other.X;
-                Y = other.Y;
-                Z = other.Z;
+                x = other.x;
+                y = other.y;
+                z = other.z;
                 status = VALUE_STATE::VALUE;
                 return *this;
             }
@@ -3173,7 +3216,7 @@ namespace GGUI{
              * @return A boolean indicating whether the two Vector objects are equal.
              */
             constexpr bool operator==(const vectorValue& other) const {
-                return X == other.X && Y == other.Y && Z == other.Z;
+                return x == other.x && y == other.y && z == other.z;
             }
 
             /** 
@@ -3192,7 +3235,7 @@ namespace GGUI{
              *          utilizing constexpr for compile-time evaluation.
              */
             constexpr vectorValue(const GGUI::STYLING_INTERNAL::vectorValue& other) 
-                : styleBase(other.status), X(other.X), Y(other.Y), Z(other.Z) {}
+                : styleBase(other.status), x(other.x), y(other.y), z(other.z) {}
             
             /**
              * @brief Get the current value of the Vector.
@@ -3200,7 +3243,7 @@ namespace GGUI{
              * @details Packs the values into an IVector3; Returns it.
              */
             constexpr IVector3 get() { 
-                return IVector3(X.get<int>(), Y.get<int>(), Z.get<int>());
+                return IVector3(x.get<int>(), y.get<int>(), z.get<int>());
             }
 
             /**
@@ -3209,7 +3252,7 @@ namespace GGUI{
              * @details This function returns the current value stored in the Vector.
              *          This value can be used to get the current value of the Vector as an IVector3 object.
              */
-            constexpr IVector3 get() const { return IVector3(X.get<int>(), Y.get<int>(), Z.get<int>()); }
+            constexpr IVector3 get() const { return IVector3(x.get<int>(), y.get<int>(), z.get<int>()); }
 
             /**
              * @brief Set the current value of the Vector.
@@ -3218,49 +3261,49 @@ namespace GGUI{
              *          It also sets the Status of the Vector to VALUE_STATE::VALUE.
              */
             constexpr void set(const IVector3 value){
-                X = value.X;
-                Y = value.Y;
-                Z = value.Z;
+                x = value.x;
+                y = value.y;
+                z = value.z;
                 status = VALUE_STATE::VALUE;
             }
 
             inline vectorValue operator+(const vectorValue& other) {
                 // check if debug mode is on
                 #ifdef GGUI_DEBUG
-                assert(X.Get_Type() == other.X.Get_Type() && "two different evaluation types for X");
-                assert(Y.Get_Type() == other.Y.Get_Type() && "two different evaluation types for Y");
-                assert(Z.Get_Type() == other.Z.Get_Type() && "two different evaluation types for Z");
+                assert(x.getType() == other.x.getType() && "two different evaluation types for X");
+                assert(y.getType() == other.y.getType() && "two different evaluation types for Y");
+                assert(z.getType() == other.z.getType() && "two different evaluation types for Z");
                 #endif
 
-                return vectorValue(X + other.X, Y + other.Y, Z + other.Z);
+                return vectorValue(x + other.x, y + other.y, z + other.z);
             }
 
             inline vectorValue operator-(const vectorValue& other){
                 // check if debug mode is on
                 #ifdef GGUI_DEBUG
-                assert(X.Get_Type() != other.X.Get_Type() && "two different evaluation types for X");
-                assert(Y.Get_Type() != other.Y.Get_Type() && "two different evaluation types for Y");
-                assert(Z.Get_Type() != other.Z.Get_Type() && "two different evaluation types for Z");
+                assert(x.getType() != other.x.getType() && "two different evaluation types for X");
+                assert(y.getType() != other.y.getType() && "two different evaluation types for Y");
+                assert(z.getType() != other.z.getType() && "two different evaluation types for Z");
                 #endif
 
-                return vectorValue(X - other.X, Y - other.Y, Z - other.Z);
+                return vectorValue(x - other.x, y - other.y, z - other.z);
             }
         
             inline void operator+=(const IVector3 v){
                 // check if debug mode is on
                 #ifdef GGUI_DEBUG
-                assert(X.Get_Type() == INTERNAL::EVALUATION_TYPE::DEFAULT && "X is not a default evaluation type");
-                assert(Y.Get_Type() == INTERNAL::EVALUATION_TYPE::DEFAULT && "Y is not a default evaluation type");
-                assert(Z.Get_Type() == INTERNAL::EVALUATION_TYPE::DEFAULT && "Z is not a default evaluation type");
+                assert(x.getType() == INTERNAL::EVALUATION_TYPE::DEFAULT && "X is not a default evaluation type");
+                assert(y.getType() == INTERNAL::EVALUATION_TYPE::DEFAULT && "Y is not a default evaluation type");
+                assert(z.getType() == INTERNAL::EVALUATION_TYPE::DEFAULT && "Z is not a default evaluation type");
                 #endif
 
-                X.Direct<int>() += v.X;
-                Y.Direct<int>() += v.Y;
-                Z.Direct<int>() += v.Z;
+                x.direct<int>() += v.x;
+                y.direct<int>() += v.y;
+                z.direct<int>() += v.z;
             }
 
             /**
-             * @brief Evaluate the Vector value.
+             * @brief evaluate the Vector value.
              * @param owner The Styling object that the Vector is a part of.
              * @details This function evaluates the Vector value.
              *          For dynamically computable values like percentage depended this function is overridden.
@@ -3313,11 +3356,11 @@ namespace GGUI{
             }
 
             // For types of int and float, we can use basic std::fmod
-            if constexpr (std::is_same_v<P, float> || std::is_same_v<P, int> || std::is_same_v<P, unsigned char> || std::is_same_v<P, unsigned int>){
+            if constexpr (std::is_integral<P>() || std::is_floating_point<P>()){
                 return hasLeftover<P>(value, scalar);
             }
             else if constexpr (std::is_same_v<P, RGB>){
-                return isNonDiscriminantScalar<unsigned char>(value.Red, scalar) && isNonDiscriminantScalar<unsigned char>(value.Green, scalar) && isNonDiscriminantScalar<unsigned char>(value.Blue, scalar);
+                return isNonDiscriminantScalar<unsigned char>(value.red, scalar) && isNonDiscriminantScalar<unsigned char>(value.green, scalar) && isNonDiscriminantScalar<unsigned char>(value.blue, scalar);
             }
             else if constexpr (std::is_same_v<P, FVector2>){
                 return isNonDiscriminantScalar<float>(value.X, scalar) && isNonDiscriminantScalar<float>(value.Y, scalar);
@@ -3343,16 +3386,16 @@ namespace GGUI{
         }
 
         template<typename P>
-        constexpr std::string toString(const P value){
+        std::string toString(const P value){
             if constexpr (std::is_same_v<P, std::string> || std::is_same_v<P, const char*> || std::is_same_v<P, char*>){
                 // These are already strings
                 return value;
             }
-            else if constexpr (std::is_same_v<P, float> || std::is_same_v<P, int> || std::is_same_v<P, unsigned char> || std::is_same_v<P, unsigned int>){
+            else if constexpr (std::is_integral<P>() || std::is_floating_point<P>()){
                 return std::to_string(value);
             }
             else if constexpr (std::is_same_v<P, RGB>){
-                return toString(value.Red) + ", " + toString(value.Green) + ", " + toString(value.Blue);
+                return toString(value.red) + ", " + toString(value.green) + ", " + toString(value.blue);
             }
             else if constexpr (std::is_same_v<P, FVector2>){
                 return toString(value.X) + ", " + toString(value.Y);
@@ -3379,7 +3422,7 @@ namespace GGUI{
     
         class empty : public styleBase{
         public:
-            constexpr empty() = default;
+            constexpr empty() : styleBase() {}
 
             inline ~empty() override { styleBase::~styleBase(); }
 
@@ -3391,21 +3434,21 @@ namespace GGUI{
 
     class position : public STYLING_INTERNAL::vectorValue{
     public:
-        constexpr position(const IVector3 value, const VALUE_STATE Default = VALUE_STATE::VALUE) : vectorValue(value, Default){}
+        constexpr position(const IVector3 Value, const VALUE_STATE Default = VALUE_STATE::VALUE) : vectorValue(Value, Default){}
 
-        constexpr position(const FVector3 value, const VALUE_STATE Default = VALUE_STATE::VALUE) : vectorValue(value.X, value.Y, value.Z, Default){
+        constexpr position(const FVector3 Value, const VALUE_STATE Default = VALUE_STATE::VALUE) : vectorValue(Value.x, Value.y, Value.z, Default){
             transformCenterToTopLeftOrigin();
         }
 
-        constexpr position(const vectorValue&& value, const VALUE_STATE Default = VALUE_STATE::VALUE) : vectorValue(value.X, value.Y, value.Z, Default){
+        constexpr position(const vectorValue&& Value, const VALUE_STATE Default = VALUE_STATE::VALUE) : vectorValue(Value.x, Value.y, Value.z, Default){
             transformCenterToTopLeftOrigin();
         }
 
-        constexpr position(const vectorValue& value, const VALUE_STATE Default = VALUE_STATE::VALUE) : vectorValue(value.X, value.Y, value.Z, Default){
+        constexpr position(const vectorValue& Value, const VALUE_STATE Default = VALUE_STATE::VALUE) : vectorValue(Value.x, Value.y, Value.z, Default){
             transformCenterToTopLeftOrigin();
         }
 
-        constexpr position(const STYLING_INTERNAL::value<int> x, const STYLING_INTERNAL::value<int> y, const STYLING_INTERNAL::value<int> z = 0, const VALUE_STATE Default = VALUE_STATE::VALUE) : vectorValue(x, y, z, Default){
+        constexpr position(const STYLING_INTERNAL::value<int> X, const STYLING_INTERNAL::value<int> Y, const STYLING_INTERNAL::value<int> Z = 0, const VALUE_STATE Default = VALUE_STATE::VALUE) : vectorValue(X, Y, Z, Default){
             transformCenterToTopLeftOrigin();
         }
 
@@ -3417,7 +3460,7 @@ namespace GGUI{
 
         constexpr position(const GGUI::position& other) : vectorValue(other){}
 
-        constexpr position& operator=(const position& other) = default;
+        position& operator=(const position& other) = default;
 
         // for dynamically computable values like percentage depended
         // currently covers:
@@ -3437,10 +3480,10 @@ namespace GGUI{
          */
         constexpr void transformCenterToTopLeftOrigin(){
             // Add 0.5f offset to the vectors
-            if (X.Get_Type() == INTERNAL::EVALUATION_TYPE::PERCENTAGE)
-                X = X + 0.5f;
-            if (Y.Get_Type() == INTERNAL::EVALUATION_TYPE::PERCENTAGE)
-                Y = Y + 0.5f;
+            if (x.getType() == INTERNAL::EVALUATION_TYPE::PERCENTAGE)
+                x = x + 0.5f;
+            if (y.getType() == INTERNAL::EVALUATION_TYPE::PERCENTAGE)
+                y = y + 0.5f;
             // no need to affect Z.
         }
     };
@@ -3461,7 +3504,7 @@ namespace GGUI{
 
         constexpr width(const GGUI::width& other) : numberValue(other){}
 
-        constexpr width& operator=(const width& other) = default;
+        width& operator=(const width& other) = default;
 
         void evaluate(const styling* self, const styling* owner) override;
 
@@ -3469,8 +3512,8 @@ namespace GGUI{
 
         constexpr int get() const { return number.get<int>(); }
 
-        constexpr void Set(const int Value){
-            number = Value;
+        constexpr void Set(const int value){
+            number = value;
             status = VALUE_STATE::VALUE;
         }
     };
@@ -3491,7 +3534,7 @@ namespace GGUI{
 
         constexpr height(const GGUI::height& other) : numberValue(other){}
 
-        constexpr height& operator=(const height& other) = default;
+        height& operator=(const height& other) = default;
         
         // for dynamically computable values like percentage depended
         // currently covers:
@@ -3502,8 +3545,8 @@ namespace GGUI{
 
         constexpr int get() const { return number.get<int>(); }
 
-        constexpr void Set(const int Value){
-            number = Value;
+        constexpr void Set(const int value){
+            number = value;
             status = VALUE_STATE::VALUE;
         }
     };
@@ -3520,7 +3563,7 @@ namespace GGUI{
             return new enableBorder(*this);
         }
 
-        constexpr enableBorder& operator=(const enableBorder& other) = default;
+        enableBorder& operator=(const enableBorder& other) = default;
 
         constexpr bool operator==(const enableBorder& other) const{
             return value == other.value;
@@ -3552,7 +3595,7 @@ namespace GGUI{
 
         constexpr textColor(const GGUI::textColor& other) : RGBValue(other){}
 
-        constexpr textColor& operator=(const textColor& other) = default;
+        textColor& operator=(const textColor& other) = default;
 
         // for dynamically computable values like percentage depended
         // currently covers:
@@ -3576,7 +3619,7 @@ namespace GGUI{
 
         constexpr backgroundColor(const GGUI::backgroundColor& other) : RGBValue(other){}
 
-        constexpr backgroundColor& operator=(const backgroundColor& other) = default;
+        backgroundColor& operator=(const backgroundColor& other) = default;
 
         // for dynamically computable values like percentage depended
         // currently covers:
@@ -3600,7 +3643,7 @@ namespace GGUI{
 
         constexpr borderColor(const GGUI::borderColor& other) : RGBValue(other){}
 
-        constexpr borderColor& operator=(const borderColor& other) = default;
+        borderColor& operator=(const borderColor& other) = default;
 
         // for dynamically computable values like percentage depended
         // currently covers:
@@ -3624,7 +3667,7 @@ namespace GGUI{
 
         constexpr borderBackgroundColor(const GGUI::borderBackgroundColor& other) : RGBValue(other){}
 
-        constexpr borderBackgroundColor& operator=(const borderBackgroundColor& other) = default;
+        borderBackgroundColor& operator=(const borderBackgroundColor& other) = default;
         
         // for dynamically computable values like percentage depended
         // currently covers:
@@ -3648,7 +3691,7 @@ namespace GGUI{
 
         constexpr hoverBorderColor(const GGUI::hoverBorderColor& other) : RGBValue(other){}
 
-        constexpr hoverBorderColor& operator=(const hoverBorderColor& other) = default;
+        hoverBorderColor& operator=(const hoverBorderColor& other) = default;
         
         // for dynamically computable values like percentage depended
         // currently covers:
@@ -3672,7 +3715,7 @@ namespace GGUI{
 
         constexpr hoverTextColor(const GGUI::hoverTextColor& other) : RGBValue(other){}
 
-        constexpr hoverTextColor& operator=(const hoverTextColor& other) = default;
+        hoverTextColor& operator=(const hoverTextColor& other) = default;
         
         // for dynamically computable values like percentage depended
         // currently covers:
@@ -3696,7 +3739,7 @@ namespace GGUI{
 
         constexpr hoverBackgroundColor(const GGUI::hoverBackgroundColor& other) : RGBValue(other){}
 
-        constexpr hoverBackgroundColor& operator=(const hoverBackgroundColor& other) = default;
+        hoverBackgroundColor& operator=(const hoverBackgroundColor& other) = default;
         
         // for dynamically computable values like percentage depended
         // currently covers:
@@ -3720,7 +3763,7 @@ namespace GGUI{
 
         constexpr hoverBorderBackgroundColor(const GGUI::hoverBorderBackgroundColor& other) : RGBValue(other){}
 
-        constexpr hoverBorderBackgroundColor& operator=(const hoverBorderBackgroundColor& other) = default;
+        hoverBorderBackgroundColor& operator=(const hoverBorderBackgroundColor& other) = default;
         
         // for dynamically computable values like percentage depended
         // currently covers:
@@ -3744,7 +3787,7 @@ namespace GGUI{
 
         constexpr focusBorderColor(const GGUI::focusBorderColor& other) : RGBValue(other){}
 
-        constexpr focusBorderColor& operator=(const focusBorderColor& other) = default;
+        focusBorderColor& operator=(const focusBorderColor& other) = default;
         
         // for dynamically computable values like percentage depended
         // currently covers:
@@ -3768,7 +3811,7 @@ namespace GGUI{
 
         constexpr focusTextColor(const GGUI::focusTextColor& other) : RGBValue(other){}
 
-        constexpr focusTextColor& operator=(const focusTextColor& other) = default;
+        focusTextColor& operator=(const focusTextColor& other) = default;
         
         // for dynamically computable values like percentage depended
         // currently covers:
@@ -3792,7 +3835,7 @@ namespace GGUI{
 
         constexpr focusBackgroundColor(const GGUI::focusBackgroundColor& other) : RGBValue(other){}
 
-        constexpr focusBackgroundColor& operator=(const focusBackgroundColor& other) = default;
+        focusBackgroundColor& operator=(const focusBackgroundColor& other) = default;
         
         // for dynamically computable values like percentage depended
         // currently covers:
@@ -3816,7 +3859,7 @@ namespace GGUI{
 
         constexpr focusBorderBackgroundColor(const GGUI::focusBorderBackgroundColor& other) : RGBValue(other){}
 
-        constexpr focusBorderBackgroundColor& operator=(const focusBorderBackgroundColor& other) = default;
+        focusBorderBackgroundColor& operator=(const focusBorderBackgroundColor& other) = default;
         
         // for dynamically computable values like percentage depended
         // currently covers:
@@ -3934,7 +3977,7 @@ namespace GGUI{
 
         constexpr flowPriority(const GGUI::flowPriority& other) : enumValue(other.value, other.status){}
 
-        constexpr flowPriority& operator=(const flowPriority& other) = default;
+        flowPriority& operator=(const flowPriority& other) = default;
         
         // for dynamically computable values like percentage depended
         // currently covers:
@@ -3956,7 +3999,7 @@ namespace GGUI{
 
         constexpr wrap(const GGUI::wrap& other) : boolValue(other.value, other.status){}
 
-        constexpr wrap& operator=(const wrap& other) = default;
+        wrap& operator=(const wrap& other) = default;
         
         // for dynamically computable values like percentage depended
         // currently covers:
@@ -3978,7 +4021,7 @@ namespace GGUI{
 
         constexpr allowOverflow(const GGUI::allowOverflow& other) : boolValue(other.value, other.status){}
 
-        constexpr allowOverflow& operator=(const allowOverflow& other) = default;
+        allowOverflow& operator=(const allowOverflow& other) = default;
         
         // for dynamically computable values like percentage depended
         // currently covers:
@@ -4000,7 +4043,7 @@ namespace GGUI{
 
         constexpr allowDynamicSize(const GGUI::allowDynamicSize& other) : boolValue(other.value, other.status){}
 
-        constexpr allowDynamicSize& operator=(const allowDynamicSize& other) = default;
+        allowDynamicSize& operator=(const allowDynamicSize& other) = default;
         
         // for dynamically computable values like percentage depended
         // currently covers:
@@ -4012,12 +4055,12 @@ namespace GGUI{
 
     class margin : public STYLING_INTERNAL::styleBase{
     public:
-        STYLING_INTERNAL::value<unsigned int> Top = (unsigned)0;
-        STYLING_INTERNAL::value<unsigned int> Bottom = (unsigned)0;
-        STYLING_INTERNAL::value<unsigned int> Left = (unsigned)0;
-        STYLING_INTERNAL::value<unsigned int> Right = (unsigned)0;
+        STYLING_INTERNAL::value<unsigned int> top = (unsigned)0;
+        STYLING_INTERNAL::value<unsigned int> bottom = (unsigned)0;
+        STYLING_INTERNAL::value<unsigned int> left = (unsigned)0;
+        STYLING_INTERNAL::value<unsigned int> right = (unsigned)0;
 
-        constexpr margin(const unsigned int top, const unsigned int bottom, const unsigned int left, const unsigned int right, const VALUE_STATE Default = VALUE_STATE::VALUE) : styleBase(Default), Top(top), Bottom(bottom), Left(left), Right(right){}
+        constexpr margin(const unsigned int Top, const unsigned int Bottom, const unsigned int Left, const unsigned int Right, const VALUE_STATE Default = VALUE_STATE::VALUE) : styleBase(Default), top(Top), bottom(Bottom), left(Left), right(Right){}
 
         constexpr margin() = default;
 
@@ -4031,17 +4074,17 @@ namespace GGUI{
         constexpr margin& operator=(const margin& other){
             // Only copy the information if the other is enabled.
             if (other.status >= status){
-                Top = other.Top;
-                Bottom = other.Bottom;
-                Left = other.Left;
-                Right = other.Right;
+                top = other.top;
+                bottom = other.bottom;
+                left = other.left;
+                right = other.right;
 
                 status = other.status;
             }
             return *this;
         }
 
-        constexpr margin(const GGUI::margin& other) : styleBase(other.status), Top(other.Top), Bottom(other.Bottom), Left(other.Left), Right(other.Right){}
+        constexpr margin(const GGUI::margin& other) : styleBase(other.status), top(other.top), bottom(other.bottom), left(other.left), right(other.right){}
         
         // for dynamically computable values like percentage depended
         // currently covers:
@@ -4053,9 +4096,20 @@ namespace GGUI{
 
     class opacity : public STYLING_INTERNAL::styleBase{
     protected:
-        float Value = 1.0f;
+        unsigned char value = UINT8_MAX;        // 0..255 where 255 is fully opaque
+
+        static constexpr unsigned char To_Opacity_Byte(const float v){
+            constexpr float FULL_TRANSPARENCY = 0.0f;
+            constexpr float FULL_OPACITY = 1.0f;
+            constexpr float HALF_OPACITY = FULL_OPACITY / 2.0f;
+
+            if (v <= FULL_TRANSPARENCY) return 0;
+            if (v >= FULL_OPACITY) return UINT8_MAX;
+            // Round to nearest so 1.0f reliably maps to 255 and mid values are stable.
+            return (unsigned char)(v * (float)UINT8_MAX + HALF_OPACITY);
+        }
     public:
-        constexpr opacity(const float value, const VALUE_STATE state = VALUE_STATE::VALUE) : styleBase(state), Value(value){}
+        constexpr opacity(const float Value, const VALUE_STATE state = VALUE_STATE::VALUE) : styleBase(state), value(To_Opacity_Byte(Value)){}
 
         inline ~opacity() override { styleBase::~styleBase(); }
 
@@ -4066,24 +4120,29 @@ namespace GGUI{
         constexpr opacity& operator=(const opacity& other){
             // Only copy the information if the other is enabled.
             if (other.status >= status){
-                Value = other.Value;
+                value = other.value;
 
                 status = other.status;
             }
             return *this;
         }
 
-        constexpr opacity(const GGUI::opacity& other) : styleBase(other.status), Value(other.Value){}
+        constexpr opacity(const GGUI::opacity& other) : styleBase(other.status), value(other.value){}
 
         // Since opacity always represents an percentile of its self being displayed on top of its parent.
         inline void evaluate([[maybe_unused]] const styling* self, [[maybe_unused]] const styling* owner) override {};
         
         INTERNAL::STAIN_TYPE embedValue(styling* host, element* owner) override;
 
-        constexpr float Get() const { return Value; }
+        constexpr unsigned char Get() const { return value; }
 
-        constexpr void Set(const float value){
-            Value = value;
+        constexpr void Set(const float Value){
+            value = To_Opacity_Byte(Value);
+            status = VALUE_STATE::VALUE;
+        }
+
+        constexpr void Set(const unsigned char Value){
+            value = Value;
             status = VALUE_STATE::VALUE;
         }
     };
@@ -4100,7 +4159,7 @@ namespace GGUI{
 
         constexpr allowScrolling(const GGUI::allowScrolling& other) : boolValue(other.value, other.status){}
 
-        constexpr allowScrolling& operator=(const allowScrolling& other) = default;
+        allowScrolling& operator=(const allowScrolling& other) = default;
         
         // for dynamically computable values like percentage depended
         // currently covers:
@@ -4122,7 +4181,7 @@ namespace GGUI{
 
         constexpr anchor(const GGUI::anchor& other) : enumValue(other.value, other.status){}
 
-        constexpr anchor& operator=(const anchor& other) = default;
+        anchor& operator=(const anchor& other) = default;
         
         // for dynamically computable values like percentage depended
         // currently covers:
@@ -4134,20 +4193,20 @@ namespace GGUI{
 
     class node : public STYLING_INTERNAL::styleBase{
     public:
-        element* Value;
+        element* value;
 
-        constexpr node(element* value = nullptr, const VALUE_STATE Default = VALUE_STATE::VALUE) : styleBase(Default, INTERNAL::EMBED_ORDER::DELAYED), Value(value){}
+        constexpr node(element* Value = nullptr, const VALUE_STATE Default = VALUE_STATE::VALUE) : styleBase(Default, INTERNAL::EMBED_ORDER::DELAYED), value(Value){}
         
-        constexpr node(const GGUI::node& other) : styleBase(other.status, INTERNAL::EMBED_ORDER::DELAYED), Value(other.Value){}
+        constexpr node(const GGUI::node& other) : styleBase(other.status, INTERNAL::EMBED_ORDER::DELAYED), value(other.value){}
 
         inline ~node() override { styleBase::~styleBase(); }
 
-        inline styleBase* copy() const override;
+        styleBase* copy() const override;
 
         constexpr node& operator=(const node& other){
             // Only copy the information if the other is enabled.
             if (other.status >= status){
-                Value = other.Value;
+                value = other.value;
 
                 status = other.status;
 
@@ -4163,25 +4222,25 @@ namespace GGUI{
 
     class childs : public STYLING_INTERNAL::styleBase{
     protected:
-        std::array<element*, INT8_MAX> Value;
+        std::array<element*, INT8_MAX> value;
     public:
-        constexpr childs(const std::initializer_list<element*> value, const VALUE_STATE Default = VALUE_STATE::VALUE) : styleBase(Default, INTERNAL::EMBED_ORDER::DELAYED), Value{}{
-            assert(value.size() <= INT8_MAX);
-            for (size_t i = 0; i < value.size(); i++){
-                Value[i] = *(value.begin() + i);
+        constexpr childs(const std::initializer_list<element*> Value, const VALUE_STATE Default = VALUE_STATE::VALUE) : styleBase(Default, INTERNAL::EMBED_ORDER::DELAYED), value{}{
+            assert(Value.size() <= INT8_MAX);
+            for (size_t i = 0; i < Value.size(); i++){
+                value[i] = *(Value.begin() + i);
             }
         }
 
-        constexpr childs(const GGUI::childs& other) : styleBase(other.status, INTERNAL::EMBED_ORDER::DELAYED), Value(other.Value){}
+        constexpr childs(const GGUI::childs& other) : styleBase(other.status, INTERNAL::EMBED_ORDER::DELAYED), value(other.value){}
 
         inline ~childs() override { styleBase::~styleBase(); }
 
-        inline styleBase* copy() const override;
+        styleBase* copy() const override;
 
         constexpr childs& operator=(const childs& other){
             // Only copy the information if the other is enabled.
             if (other.status >= status){
-                Value = other.Value;
+                value = other.value;
 
                 status = other.status;
 
@@ -4196,14 +4255,14 @@ namespace GGUI{
 
         // -----< UTILS >-----
 
-        // iterator fetcher to skip the nullptr tail of the Value
+        // iterator fetcher to skip the nullptr tail of the value
         inline std::array<element*, INT8_MAX>::const_iterator begin() const {
-            return Value.cbegin();
+            return value.cbegin();
         }
 
-        // iterator fetcher to skip the nullptr tail of the Value
+        // iterator fetcher to skip the nullptr tail of the value
         inline std::array<element*, INT8_MAX>::const_iterator end() const {
-            return std::find(Value.cbegin(), Value.cend(), nullptr);
+            return std::find(value.cbegin(), value.cend(), nullptr);
         }
 
         inline int length() const {
@@ -4213,11 +4272,11 @@ namespace GGUI{
 
     class onInit : public STYLING_INTERNAL::styleBase{
     public:
-        void (*Value)(element* self);
+        void (*value)(element* self);
 
-        constexpr onInit(void (*value)(element* self), const VALUE_STATE Default = VALUE_STATE::VALUE) : styleBase(Default), Value(value){}
+        constexpr onInit(void (*Value)(element* self), const VALUE_STATE Default = VALUE_STATE::VALUE) : styleBase(Default), value(Value){}
 
-        constexpr onInit(const GGUI::onInit& other) : styleBase(other.status), Value(other.Value){}
+        constexpr onInit(const GGUI::onInit& other) : styleBase(other.status), value(other.value){}
 
         inline ~onInit() override { styleBase::~styleBase(); }
 
@@ -4228,7 +4287,7 @@ namespace GGUI{
         constexpr onInit& operator=(const onInit& other){
             // Only copy the information if the other is enabled.
             if (other.status >= status){
-                Value = other.Value;
+                value = other.value;
 
                 status = other.status;
             }
@@ -4242,11 +4301,11 @@ namespace GGUI{
 
     class onDestroy : public STYLING_INTERNAL::styleBase{
     public:
-        void (*Value)(element* self);
+        void (*value)(element* self);
 
-        constexpr onDestroy(void (*value)(element* self), const VALUE_STATE Default = VALUE_STATE::VALUE) : styleBase(Default), Value(value){}
+        constexpr onDestroy(void (*Value)(element* self), const VALUE_STATE Default = VALUE_STATE::VALUE) : styleBase(Default), value(Value){}
 
-        constexpr onDestroy(const GGUI::onDestroy& other) : styleBase(other.status), Value(other.Value){}
+        constexpr onDestroy(const GGUI::onDestroy& other) : styleBase(other.status), value(other.value){}
 
         inline ~onDestroy() override { styleBase::~styleBase(); }
 
@@ -4257,7 +4316,7 @@ namespace GGUI{
         constexpr onDestroy& operator=(const onDestroy& other){
             // Only copy the information if the other is enabled.
             if (other.status >= status){
-                Value = other.Value;
+                value = other.value;
 
                 status = other.status;
             }
@@ -4271,11 +4330,11 @@ namespace GGUI{
 
     class onHide : public STYLING_INTERNAL::styleBase{
     public:
-        void (*Value)(element* self);
+        void (*value)(element* self);
 
-        constexpr onHide(void (*value)(element* self), const VALUE_STATE Default = VALUE_STATE::VALUE) : styleBase(Default), Value(value){}
+        constexpr onHide(void (*Value)(element* self), const VALUE_STATE Default = VALUE_STATE::VALUE) : styleBase(Default), value(Value){}
 
-        constexpr onHide(const GGUI::onHide& other) : styleBase(other.status), Value(other.Value){}
+        constexpr onHide(const GGUI::onHide& other) : styleBase(other.status), value(other.value){}
 
         inline ~onHide() override { styleBase::~styleBase(); }
 
@@ -4286,7 +4345,7 @@ namespace GGUI{
         constexpr onHide& operator=(const onHide& other){
             // Only copy the information if the other is enabled.
             if (other.status >= status){
-                Value = other.Value;
+                value = other.value;
 
                 status = other.status;
             }
@@ -4300,11 +4359,11 @@ namespace GGUI{
 
     class onShow : public STYLING_INTERNAL::styleBase{
     public:
-        void (*Value)(element* self);
+        void (*value)(element* self);
 
-        constexpr onShow(void (*value)(element* self), const VALUE_STATE Default = VALUE_STATE::VALUE) : styleBase(Default), Value(value){}
+        constexpr onShow(void (*Value)(element* self), const VALUE_STATE Default = VALUE_STATE::VALUE) : styleBase(Default), value(Value){}
 
-        constexpr onShow(const GGUI::onShow& other) : styleBase(other.status), Value(other.Value){}
+        constexpr onShow(const GGUI::onShow& other) : styleBase(other.status), value(other.value){}
 
         inline ~onShow() override { styleBase::~styleBase(); }
 
@@ -4315,7 +4374,36 @@ namespace GGUI{
         constexpr onShow& operator=(const onShow& other){
             // Only copy the information if the other is enabled.
             if (other.status >= status){
-                Value = other.Value;
+                value = other.value;
+
+                status = other.status;
+            }
+            return *this;
+        }
+
+        inline void evaluate([[maybe_unused]] const styling* self, [[maybe_unused]] const styling* owner) override {};
+
+        INTERNAL::STAIN_TYPE embedValue(styling* host, element* owner) override;
+    };
+
+    class onRender : public STYLING_INTERNAL::styleBase{
+    public:
+        void (*value)(element* self);
+
+        constexpr onRender(void (*Value)(element* self), const VALUE_STATE Default = VALUE_STATE::VALUE) : styleBase(Default), value(Value){}
+
+        constexpr onRender(const GGUI::onRender& other) : styleBase(other.status), value(other.value){}
+
+        inline ~onRender() override { styleBase::~styleBase(); }
+
+        inline styleBase* copy() const override {
+            return new onRender(*this);
+        }
+
+        constexpr onRender& operator=(const onRender& other){
+            // Only copy the information if the other is enabled.
+            if (other.status >= status){
+                value = other.value;
 
                 status = other.status;
             }
@@ -4329,11 +4417,11 @@ namespace GGUI{
 
     class name : public STYLING_INTERNAL::styleBase{
     public:
-        INTERNAL::compactString Value;
+        INTERNAL::compactString value;
 
-        constexpr name(INTERNAL::compactString value, const VALUE_STATE Default = VALUE_STATE::VALUE) : styleBase(Default), Value(value){}
+        constexpr name(INTERNAL::compactString Value, const VALUE_STATE Default = VALUE_STATE::VALUE) : styleBase(Default), value(Value){}
 
-        constexpr name(const GGUI::name& other) : styleBase(other.status), Value(other.Value){}
+        constexpr name(const GGUI::name& other) : styleBase(other.status), value(other.value){}
 
         inline ~name() override { styleBase::~styleBase(); }
 
@@ -4344,7 +4432,7 @@ namespace GGUI{
         constexpr name& operator=(const name& other){
             // Only copy the information if the other is enabled.
             if (other.status >= status){
-                Value = other.Value;
+                value = other.value;
 
                 status = other.status;
             }
@@ -4358,7 +4446,7 @@ namespace GGUI{
 
     class title : public name{
     public:
-        constexpr title(const INTERNAL::compactString&& value, const VALUE_STATE Default = VALUE_STATE::VALUE) : name(value, Default){}
+        constexpr title(const INTERNAL::compactString&& Value, const VALUE_STATE Default = VALUE_STATE::VALUE) : name(Value, Default){}
 
         inline ~title() override { styleBase::~styleBase(); }
 
@@ -4366,12 +4454,12 @@ namespace GGUI{
             return new title(*this);
         }
 
-        constexpr title(const GGUI::title& other) : name(other.Value, other.status){}
+        constexpr title(const GGUI::title& other) : name(other.value, other.status){}
 
         constexpr title& operator=(const title& other){
             // Only copy the information if the other is enabled.
             if (other.status >= status){
-                Value = other.Value;
+                value = other.value;
 
                 status = other.status;
             }
@@ -4381,7 +4469,7 @@ namespace GGUI{
         INTERNAL::STAIN_TYPE embedValue(styling* host, element* owner) override;
 
         constexpr bool empty(){
-            return Value.empty();
+            return value.empty();
         }
     };
 
@@ -4415,11 +4503,11 @@ namespace GGUI{
     class sprite;
     class onDraw : public STYLING_INTERNAL::styleBase{
     public:
-        GGUI::sprite (*Value)(unsigned int x, unsigned int y);
+        GGUI::sprite (*value)(unsigned int x, unsigned int y);
 
-        constexpr onDraw(GGUI::sprite (*value)(unsigned int x, unsigned int y), const VALUE_STATE Default = VALUE_STATE::VALUE) : styleBase(Default), Value(value){}
+        constexpr onDraw(GGUI::sprite (*Value)(unsigned int x, unsigned int y), const VALUE_STATE Default = VALUE_STATE::VALUE) : styleBase(Default), value(Value){}
         
-        constexpr onDraw(const GGUI::onDraw& other) : styleBase(other.status), Value(other.Value){}
+        constexpr onDraw(const GGUI::onDraw& other) : styleBase(other.status), value(other.value){}
 
         inline ~onDraw() override { styleBase::~styleBase(); }
 
@@ -4430,7 +4518,7 @@ namespace GGUI{
         constexpr onDraw& operator=(const onDraw& other){
             // Only copy the information if the other is enabled.
             if (other.status >= status){
-                Value = other.Value;
+                value = other.value;
 
                 status = other.status;
             }
@@ -4444,11 +4532,11 @@ namespace GGUI{
 
     class text : public STYLING_INTERNAL::styleBase{
     public:
-        const char* Value;
+        const char* value;
 
-        constexpr text(const char* value, const VALUE_STATE Default = VALUE_STATE::VALUE) : styleBase(Default), Value(value){}
+        constexpr text(const char* Value, const VALUE_STATE Default = VALUE_STATE::VALUE) : styleBase(Default), value(Value){}
 
-        constexpr text(const GGUI::text& other) : styleBase(other.status), Value(other.Value){}
+        constexpr text(const GGUI::text& other) : styleBase(other.status), value(other.value){}
 
         inline ~text() override { styleBase::~styleBase(); }
 
@@ -4459,7 +4547,7 @@ namespace GGUI{
         constexpr text& operator=(const text& other){
             // Only copy the information if the other is enabled.
             if (other.status >= status){
-                Value = other.Value;
+                value = other.value;
 
                 status = other.status;
             }
@@ -4473,11 +4561,11 @@ namespace GGUI{
 
     class onClick : public STYLING_INTERNAL::styleBase{
     public:
-        bool (*Value)(element* self);
+        bool (*value)(element* self);
 
-        constexpr onClick(bool (*value)(element* self), const VALUE_STATE Default = VALUE_STATE::VALUE) : styleBase(Default, INTERNAL::EMBED_ORDER::DELAYED), Value(value){}
+        constexpr onClick(bool (*Value)(element* self), const VALUE_STATE Default = VALUE_STATE::VALUE) : styleBase(Default, INTERNAL::EMBED_ORDER::DELAYED), value(Value){}
 
-        constexpr onClick(const GGUI::onClick& other) : styleBase(other.status, INTERNAL::EMBED_ORDER::DELAYED), Value(other.Value){}
+        constexpr onClick(const GGUI::onClick& other) : styleBase(other.status, INTERNAL::EMBED_ORDER::DELAYED), value(other.value){}
 
         inline ~onClick() override { styleBase::~styleBase(); }
 
@@ -4488,7 +4576,7 @@ namespace GGUI{
         constexpr onClick& operator=(const onClick& other){
             // Only copy the information if the other is enabled.
             if (other.status >= status){
-                Value = other.Value;
+                value = other.value;
 
                 status = other.status;
                 
@@ -4504,11 +4592,11 @@ namespace GGUI{
 
     class onInput : public STYLING_INTERNAL::styleBase{
     public:
-        void (*Value)(textField* self, char c);
+        void (*value)(textField* self, char c);
 
-        constexpr onInput(void (*value)(textField* self, char c), const VALUE_STATE Default = VALUE_STATE::VALUE) : styleBase(Default), Value(value){}
+        constexpr onInput(void (*Value)(textField* self, char c), const VALUE_STATE Default = VALUE_STATE::VALUE) : styleBase(Default), value(Value){}
 
-        constexpr onInput(const GGUI::onInput& other) : styleBase(other.status), Value(other.Value){}
+        constexpr onInput(const GGUI::onInput& other) : styleBase(other.status), value(other.value){}
 
         inline ~onInput() override { styleBase::~styleBase(); }
 
@@ -4519,7 +4607,7 @@ namespace GGUI{
         constexpr onInput& operator=(const onInput& other){
             // Only copy the information if the other is enabled.
             if (other.status >= status){
-                Value = other.Value;
+                value = other.value;
 
                 status = other.status;
             }
@@ -4636,8 +4724,8 @@ namespace GGUI{
          * 
          * This function is used to embed the styles of the current styling object into the element.
          * It takes the element as a parameter and embeds the styles into it.
-         * The styles are embedded by looping through the un_parsed_styles list and calling the Embed_Value function on each attribute.
-         * The Embed_Value function is responsible for embedding the attribute into the element.
+         * The styles are embedded by looping through the un_parsed_styles list and calling the Embed_value function on each attribute.
+         * The Embed_value function is responsible for embedding the attribute into the element.
          * The changes to the element are recorded in the changes variable, which is of type STAIN.
          * The type of the changes is then added to the element's stains list.
          * The function returns nothing.
@@ -4676,7 +4764,7 @@ namespace GGUI{
         styling* getReference(element* owner);
 
         /**
-         * @brief Evaluates all dynamic attribute values for the owner element.
+         * @brief evaluates all dynamic attribute values for the owner element.
          *
          * This function evaluates the dynamic attribute values of the styling associated
          * with the specified element. It determines the point of interest, which is
@@ -4686,7 +4774,7 @@ namespace GGUI{
          * @param owner The element whose dynamic attributes are to be evaluated.
          * @return True if there wae changes in the attributes evaluated, false otherwise.
          */
-        bool evaluateDynamicAttributeValues(element* owner);
+        bool evaluateDynamicAttributevalues(element* owner);
 
         bool evaluateDynamicPosition(element* owner, styling* reference = nullptr);
 
@@ -4764,7 +4852,7 @@ namespace GGUI {
         /**
          * @brief Enumeration of supported argument types for command line parsing.
          */
-        enum class ArgumentType {
+        enum class argumentType {
             FLAG,           ///< Boolean flag argument (no value expected)
             STRING,         ///< String value argument
             INTEGER,        ///< Integer value argument
@@ -4777,10 +4865,10 @@ namespace GGUI {
          * This class encapsulates information about a command line argument including
          * its name, type, description, and a callback function to handle the parsed value.
          */
-        class ArgumentDescriptor {
+        class argumentDescriptor {
         public:
             std::string name;                                    ///< Argument name (without dashes)
-            ArgumentType type;                                   ///< Type of argument (flag, string, integer, etc.)
+            argumentType type;                                   ///< Type of argument (flag, string, integer, etc.)
             std::string description;                             ///< Human-readable description for help text
             std::function<void(const std::string&)> handler;    ///< Callback function to handle parsed value
 
@@ -4792,8 +4880,8 @@ namespace GGUI {
              * @param argDescription Description of the argument for help text
              * @param argHandler Callback function to handle the parsed value
              */
-            ArgumentDescriptor(const std::string& argName, 
-                             ArgumentType argType, 
+            argumentDescriptor(const std::string& argName, 
+                             argumentType argType, 
                              const std::string& argDescription,
                              std::function<void(const std::string&)> argHandler)
                 : name(argName), type(argType), description(argDescription), handler(argHandler) {}
@@ -4803,8 +4891,8 @@ namespace GGUI {
              * 
              * @return true if the argument type requires a value, false for flags
              */
-            bool requiresValue() const {
-                return type != ArgumentType::FLAG;
+            bool requiresvalue() const {
+                return type != argumentType::FLAG;
             }
 
             /**
@@ -4814,27 +4902,27 @@ namespace GGUI {
              */
             std::string getTypeName() const {
                 switch (type) {
-                    case ArgumentType::FLAG: return "flag";
-                    case ArgumentType::STRING: return "string";
-                    case ArgumentType::INTEGER: return "integer";
-                    case ArgumentType::UNSIGNED_LONG: return "unsigned long";
+                    case argumentType::FLAG: return "flag";
+                    case argumentType::STRING: return "string";
+                    case argumentType::INTEGER: return "integer";
+                    case argumentType::UNSIGNED_LONG: return "unsigned long";
                     default: return "unknown";
                 }
             }
         };
 
         // Given as --mousePressCooldown = 123
-        extern unsigned long long Mouse_Press_Down_Cooldown;  // Milliseconds
+        extern unsigned long long mousePressDownCooldown;  // Milliseconds
 
         // Given as --enableWordWrapping
-        extern bool Word_Wrapping;
+        extern bool wordWrapping;
 
         // Given as --enableGammaCorrection
-        extern bool ENABLE_GAMMA_CORRECTION;
+        extern bool enableGammaCorrection;
 
         namespace LOGGER{
             // Given as --loggerFileName = "GGUI.log"
-            extern std::string File_Name;
+            extern std::string fileName;
         }
 
         // Given as --enableDRM
@@ -4924,7 +5012,7 @@ namespace GGUI{
     class fileStream;
 
     // Managed file stream handles. Ownership is now RAII via unique_ptr.
-    extern std::unordered_map<std::string, std::unique_ptr<fileStream>> File_Streamer_Handles;
+    extern std::unordered_map<std::string, std::unique_ptr<fileStream>> fileStreamerHandles;
 
     /**
      * @brief Returns the current working directory of the program.
@@ -4972,14 +5060,14 @@ namespace GGUI{
 
     class fileStream{
     private:
-        INTERNAL::bufferCapture* Buffer_Capture = nullptr;
-        std::fstream Handle;
-        std::vector<std::function<void()>> On_Change = {};
-        std::string Previous_Content = "";
-        unsigned long long Previous_Hash = 0;
-        FILE_STREAM_TYPE Type = FILE_STREAM_TYPE::UN_INITIALIZED;
+        INTERNAL::bufferCapture* bufferCapture = nullptr;
+        std::fstream handle;
+        std::vector<std::function<void()>> onChange = {};
+        std::string previousContent = "";
+        unsigned long long previousHash = 0;
+        FILE_STREAM_TYPE type = FILE_STREAM_TYPE::UN_INITIALIZED;
     public:
-        std::string Name = "";
+        std::string name = "";
 
         /**
          * @brief Constructor of the FILE_STREAM class.
@@ -5024,19 +5112,19 @@ namespace GGUI{
          * If the file does not exist, or any other error occurs, this function will return an empty string and print an error message to the console.
          * If read_from_std_cout is true, this function will read the content from the buffer capture instead of the file.
          */
-        std::string Read();
+        std::string read();
 
         /**
          * @brief overwrites the given buffer into the file, clearing the previous content of said file.
          * @param Buffer The buffer to write into the file.
          */
-        void Write(std::string Buffer);
+        void write(std::string Buffer);
 
         /**
          * @brief Append line of text to the end of the file.
          * @param Line The line of text to append to the file.
          */
-        void Append(std::string Line);
+        void append(std::string Line);
     
         /**
          * @brief Read the content of the file quickly without checking if the file has changed.
@@ -5047,7 +5135,7 @@ namespace GGUI{
          * If the file does not exist, or any other error occurs, this function will return an empty string and print an error message to the console.
          * If read_from_std_cout is true, this function will read the content from the buffer capture instead of the file.
          */
-        std::string Fast_Read() { return Previous_Content; }
+        std::string fastRead() { return previousContent; }
 
         /**
          * @brief Checks if the file has changed and notifies the event handlers if so.
@@ -5056,7 +5144,7 @@ namespace GGUI{
          * It reads the new content from the file, calculates the hash of the new content, and compares it with the previous hash.
          * If the hash has changed, it notifies all the event handlers by calling them.
          */
-        void Changed();
+        void changed();
 
         /**
          * @brief Adds a new event handler to the list of event handlers for this file.
@@ -5066,7 +5154,7 @@ namespace GGUI{
          * If read_from_std_cout is true, the event handler is added to the list of event handlers of the Buffer_Capture object.
          * Otherwise, the event handler is added to the list of event handlers of this FILE_STREAM object.
          */
-        void Add_On_Change_Handler(std::function<void()> on_change);
+        void addOnChangeHandler(std::function<void()> on_change);
 
         /**
          * @brief Checks if the file stream is a std::cout stream.
@@ -5075,20 +5163,20 @@ namespace GGUI{
          * This function checks if the file stream is a std::cout stream, i.e. if it is a stream that is
          * associated with the BUFFER_CAPTURE class. If it is, it returns true, otherwise it returns false.
          */
-        bool Is_Cout_Stream(){
-            return Buffer_Capture != nullptr;
+        bool isCoutStream(){
+            return bufferCapture != nullptr;
         }
 
-        FILE_STREAM_TYPE Get_type(){
-            return Type;
+        FILE_STREAM_TYPE getType(){
+            return type;
         }
     };
 
     class filePosition{
     public:
-        std::string File_Name = "";     // Originated.
-        unsigned int Line_Number = 0;   // Y
-        unsigned int Character = 0;     // X
+        std::string fileName = "";     // Originated.
+        unsigned int lineNumber = 0;   // Y
+        unsigned int character = 0;     // X
 
         /**
          * @brief Constructor for the FILE_POSITION class.
@@ -5098,10 +5186,10 @@ namespace GGUI{
          * 
          * This constructor creates a new FILE_POSITION object with the given file name, line number and character number.
          */
-        filePosition(std::string file_name, unsigned int line_number, unsigned int character){
-            this->File_Name = file_name;
-            this->Line_Number = line_number;
-            this->Character = character;
+        filePosition(std::string file_name, unsigned int line_number, unsigned int Character){
+            this->fileName = file_name;
+            this->lineNumber = line_number;
+            this->character = Character;
         }
 
         /**
@@ -5117,8 +5205,8 @@ namespace GGUI{
          * This function converts the FILE_POSITION object to a string by concatenating the file name, line number and character number with a colon in between.
          * The resulting string can be used to log or display the position of the file stream.
          */
-        std::string To_String(){
-            return File_Name + ":" + std::to_string(Line_Number) + ":" + std::to_string(Character);
+        std::string toString(){
+            return fileName + ":" + std::to_string(lineNumber) + ":" + std::to_string(character);
         }
     };
     
@@ -5170,7 +5258,7 @@ namespace GGUI{
              * This function runs a command in a shell and captures its output. It
              * then returns the output as a string.
              */
-            std::string Run(std::string command);
+            std::string run(std::string command);
         };
     #else
         class CMD{  // Unix implementation:
@@ -5181,7 +5269,7 @@ namespace GGUI{
                     int Out;
                 } Way;
                 int FDS[2];
-            } File_Descriptor;
+            } fileDescriptor;
         public:
 
             /**
@@ -5210,7 +5298,7 @@ namespace GGUI{
              * a pipe and captured by the parent process. The function returns the
              * captured output as a string.
              */
-            std::string Run(std::string command);
+            std::string run(std::string command);
         };
     #endif
 }
@@ -5383,7 +5471,7 @@ namespace GGUI {
                      */
                     explicit connection(int socketFd) : handle(socketFd) {
                         if (socketFd < 0) {
-                            GGUI::INTERNAL::LOGGER::Log("Invalid socket file descriptor provided to connection constructor");
+                            GGUI::INTERNAL::LOGGER::log("Invalid socket file descriptor provided to connection constructor");
                         }
                     }
 
@@ -5431,7 +5519,7 @@ namespace GGUI {
                     template<typename T>
                     bool Send(const T* data, size_t count = 1) {
                         if (handle < 0) {
-                            GGUI::INTERNAL::LOGGER::Log("Cannot send on closed socket");
+                            GGUI::INTERNAL::LOGGER::log("Cannot send on closed socket");
                         }
                         if (!data && count > 0) {
                             return false;
@@ -5441,7 +5529,7 @@ namespace GGUI {
                         ssize_t sent = send(handle, data, totalBytes, 0);
                         
                         if (sent < 0) {
-                            // Send failed due to error
+                            // send failed due to error
                             return false;
                         }
                         
@@ -5461,9 +5549,9 @@ namespace GGUI {
                      * @throws std::runtime_error if the socket is invalid or closed
                      */
                     template<typename T>
-                    bool Receive(T* data, size_t count = 1) {
+                    bool receive(T* data, size_t count = 1) {
                         if (handle < 0) {
-                            GGUI::INTERNAL::LOGGER::Log("Cannot receive on closed socket");
+                            GGUI::INTERNAL::LOGGER::log("Cannot receive on closed socket");
                         }
                         if (!data && count > 0) {
                             return false;
@@ -5473,7 +5561,7 @@ namespace GGUI {
                         ssize_t recvd = recv(handle, data, totalBytes, 0);
                         
                         if (recvd < 0) {
-                            // Receive failed due to error
+                            // receive failed due to error
                             return false;
                         }
                         if (recvd == 0) {
@@ -5535,14 +5623,14 @@ namespace GGUI {
                         // Create socket
                         handle = socket(AF_INET, SOCK_STREAM, 0);
                         if (handle < 0) {
-                            GGUI::INTERNAL::LOGGER::Log("Failed to create socket: " + std::string(strerror(errno)));
+                            GGUI::INTERNAL::LOGGER::log("Failed to create socket: " + std::string(strerror(errno)));
                         }
 
                         // Set socket option to reuse address
                         int opt = 1;
                         if (setsockopt(handle, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
                             ::close(handle);
-                            GGUI::INTERNAL::LOGGER::Log("Failed to set socket option SO_REUSEADDR: " + std::string(strerror(errno)));
+                            GGUI::INTERNAL::LOGGER::log("Failed to set socket option SO_REUSEADDR: " + std::string(strerror(errno)));
                         }
 
                         // Bind socket to address
@@ -5553,13 +5641,13 @@ namespace GGUI {
                         
                         if (bind(handle, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
                             ::close(handle);
-                            GGUI::INTERNAL::LOGGER::Log("Failed to bind socket to port " + std::to_string(port) + ": " + std::string(strerror(errno)));
+                            GGUI::INTERNAL::LOGGER::log("Failed to bind socket to port " + std::to_string(port) + ": " + std::string(strerror(errno)));
                         }
 
                         // Start listening
                         if (listen(handle, 5) < 0) {
                             ::close(handle);
-                            GGUI::INTERNAL::LOGGER::Log("Failed to start listening on socket: " + std::string(strerror(errno)));
+                            GGUI::INTERNAL::LOGGER::log("Failed to start listening on socket: " + std::string(strerror(errno)));
                         }
                     }
 
@@ -5602,12 +5690,12 @@ namespace GGUI {
                      */
                     connection Accept() {
                         if (handle < 0) {
-                            GGUI::INTERNAL::LOGGER::Log("Cannot accept on closed listener");
+                            GGUI::INTERNAL::LOGGER::log("Cannot accept on closed listener");
                         }
 
                         int connFd = accept(handle, nullptr, nullptr);
                         if (connFd < 0) {
-                            GGUI::INTERNAL::LOGGER::Log("Failed to accept connection: " + std::string(strerror(errno)));
+                            GGUI::INTERNAL::LOGGER::log("Failed to accept connection: " + std::string(strerror(errno)));
                         }
                         
                         return connection(connFd);
@@ -5624,14 +5712,14 @@ namespace GGUI {
                      */
                     uint16_t getPort() {
                         if (handle < 0) {
-                            GGUI::INTERNAL::LOGGER::Log("Cannot get port of closed listener");
+                            GGUI::INTERNAL::LOGGER::log("Cannot get port of closed listener");
                         }
 
                         sockaddr_in actual{};
                         socklen_t len = sizeof(actual);
                         
                         if (getsockname(handle, reinterpret_cast<sockaddr*>(&actual), &len) < 0) {
-                            GGUI::INTERNAL::LOGGER::Log("Failed to get socket name: " + std::string(strerror(errno)));
+                            GGUI::INTERNAL::LOGGER::log("Failed to get socket name: " + std::string(strerror(errno)));
                         }
 
                         return ntohs(actual.sin_port);
@@ -5664,7 +5752,7 @@ namespace GGUI {
                         // Create socket
                         int sockFd = socket(AF_INET, SOCK_STREAM, 0);
                         if (sockFd < 0) {
-                            GGUI::INTERNAL::LOGGER::Log("Failed to create socket: " + std::string(strerror(errno)));
+                            GGUI::INTERNAL::LOGGER::log("Failed to create socket: " + std::string(strerror(errno)));
                         }
 
                         // Prepare address structure
@@ -5677,16 +5765,16 @@ namespace GGUI {
                         if (result <= 0) {
                             ::close(sockFd);
                             if (result == 0) {
-                                GGUI::INTERNAL::LOGGER::Log("Invalid IP address format: " + std::string(host));
+                                GGUI::INTERNAL::LOGGER::log("Invalid IP address format: " + std::string(host));
                             } else {
-                                GGUI::INTERNAL::LOGGER::Log("inet_pton failed: " + std::string(strerror(errno)));
+                                GGUI::INTERNAL::LOGGER::log("inet_pton failed: " + std::string(strerror(errno)));
                             }
                         }
 
                         // Connect to the remote host
                         if (connect(sockFd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
                             ::close(sockFd);
-                            GGUI::INTERNAL::LOGGER::Log("Failed to connect to " + std::string(host) + ":" + std::to_string(port) + " - " + std::string(strerror(errno)));
+                            GGUI::INTERNAL::LOGGER::log("Failed to connect to " + std::string(host) + ":" + std::to_string(port) + " - " + std::string(strerror(errno)));
 
                             return connection();    // Return an empty connection with -1 as fd
                         }
@@ -5750,6 +5838,8 @@ namespace GGUI{
 
         class element* Parent = nullptr;
 
+        std::vector<action*> handlers;
+
         // Determines if the element is rendered or not.
         bool Show = true;
         
@@ -5771,6 +5861,7 @@ namespace GGUI{
         void (*On_Destroy)(element*) = nullptr;
         void (*On_Hide)(element*) = nullptr;
         void (*On_Show)(element*) = nullptr;
+        void (*On_Render)(element*) = nullptr;
     public:
 
         /**
@@ -5877,6 +5968,12 @@ namespace GGUI{
         }
 
 
+        const std::vector<action*>& getEventHandlers() const {
+            return handlers;
+        }
+
+        void addEventhandler(action* handler);
+
         /**
          * @brief Returns true if the element is currently focused.
          * @return A boolean indicating whether the element is focused.
@@ -5918,7 +6015,7 @@ namespace GGUI{
         constexpr void check(INTERNAL::STATE s){
             if (s == INTERNAL::STATE::INIT && On_Init){
                 // Since the rendering hasn't yet started and the function here may be reliant on some relative information, we need to evaluate the the dynamic values.
-                Style->evaluateDynamicAttributeValues(this);
+                Style->evaluateDynamicAttributevalues(this);
 
                 On_Init(this);
             }
@@ -5989,6 +6086,13 @@ namespace GGUI{
         float getOpacity() const; 
 
         /**
+         * @brief Gets the opacity as an 8-bit value.
+         * @details Returns 0..255 where 0 is fully transparent and 255 is fully opaque.
+         * @return The current opacity byte.
+         */
+        unsigned char getOpacityByte() const;
+
+        /**
          * @brief Checks if the element is transparent.
          * @details This function determines whether the element is transparent by checking
          *          if the element's opacity is not equal to 1.0f. An opacity less than 1.0f
@@ -6057,7 +6161,7 @@ namespace GGUI{
          *          It returns true if the element is displayed and false if the element is hidden.
          * @return A boolean indicating whether the element is displayed (true) or hidden (false).
          */
-        bool isDisplayed();
+        bool isDisplayed() const;
 
         /**
          * @brief Adds a child element to the element.
@@ -6107,7 +6211,7 @@ namespace GGUI{
          * @param index The index of the element to remove.
          * @return True if the element was successfully removed, false otherwise.
          */
-        virtual bool remove(unsigned int index);
+        virtual bool remove(size_t index);
 
         /**
          * @brief Set the width and height of the element.
@@ -6117,21 +6221,21 @@ namespace GGUI{
          * @param width The new width of the element.
          * @param height The new height of the element.
          */
-        void setDimensions(unsigned int width, unsigned int height);
+        void setDimensions(int width, int height);
 
         /**
          * @brief Get the width of the element.
          * @details This function returns the width of the element.
          * @return The width of the element.
          */
-        constexpr unsigned int getWidth(){ return Style->Width.get(); }
+        constexpr int getWidth(){ return Style->Width.get(); }
 
         /**
          * @brief Get the height of the element.
          * @details This function returns the height of the element.
          * @return The height of the element.
          */
-        constexpr unsigned int getHeight() { return Style->Height.get(); }
+        constexpr int getHeight() { return Style->Height.get(); }
 
         /**
          * @brief Set the width of the element.
@@ -6140,7 +6244,7 @@ namespace GGUI{
          *          The Update_Frame() function is also called to update the frame.
          * @param width The new width of the element.
          */
-        void setWidth(unsigned int width);
+        void setWidth(int width);
 
         /**
          * @brief Set the height of the element.
@@ -6149,7 +6253,7 @@ namespace GGUI{
          *          The Update_Frame() function is also called to update the frame.
          * @param height The new height of the element.
          */
-        void setHeight(unsigned int height);
+        void setHeight(int height);
 
         /**
          * @brief Retrieves the evaluation type of the width property.
@@ -6159,7 +6263,7 @@ namespace GGUI{
          * 
          * @return EVALUATION_TYPE The evaluation type of the width property.
          */
-        INTERNAL::EVALUATION_TYPE getWidthType() { return Style->Width.number.Get_Type(); }
+        INTERNAL::EVALUATION_TYPE getWidthType() { return Style->Width.number.getType(); }
 
         /**
          * @brief Retrieves the evaluation type of the height value.
@@ -6168,7 +6272,7 @@ namespace GGUI{
          * 
          * @return EVALUATION_TYPE The evaluation type of the height value.
          */
-        INTERNAL::EVALUATION_TYPE getHeightType() { return Style->Height.number.Get_Type(); }
+        INTERNAL::EVALUATION_TYPE getHeightType() { return Style->Height.number.getType(); }
 
         /**
          * @brief Set the position of the element.
@@ -6657,7 +6761,7 @@ namespace GGUI{
          * 
          * @return A pair of RGB values representing the text color and background color of the element.
          */
-        constexpr std::pair<RGB, RGB>  composeAllTextRGBValues(){
+        constexpr std::pair<RGB, RGB>  composeAllTextRGBvalues(){
             if (Focused){
                 return {Style->Focus_Text_Color.color.get<RGB>(), Style->Focus_Background_Color.color.get<RGB>()};
             }
@@ -6677,7 +6781,7 @@ namespace GGUI{
          * Otherwise, the function will return the RGB values of the normal border color and background color.
          * @return A pair of RGB values representing the border color and background color of the element.
          */
-        constexpr std::pair<RGB, RGB> composeAllBorderRGBValues(){
+        constexpr std::pair<RGB, RGB> composeAllBorderRGBvalues(){
             if (Focused){
                 return {Style->Focus_Border_Color.color.get<RGB>(), Style->Focus_Border_Background_Color.color.get<RGB>()};
             }
@@ -6915,18 +7019,30 @@ namespace GGUI{
         }
 
         /**
+         * @brief Sets the callback function to be called during the render phase of the element.
+         *
+         * This function assigns a user-defined function to be executed when the element is rendered.
+         * The callback receives a pointer to the element itself as its parameter.
+         *
+         * @param func Pointer to a function that takes an element* as its argument and returns void.
+         */
+        inline void setOnRender(void (*func)(element* self)){
+            On_Render = func;
+        }
+
+        /**
          * @brief Forces the evaluation of dynamic style attributes for the current element.
          * 
          * This method checks if the element has an associated style object. If a style object
          * exists, it triggers the evaluation of dynamic attribute values for the element
-         * by calling the `evaluateDynamicAttributeValues` method on the style object.
+         * by calling the `evaluateDynamicAttributevalues` method on the style object.
          * 
          * @note This function is typically used to ensure that the element's style is
          * up-to-date, especially when dynamic attributes are involved.
          */
         inline void forceStyleEvaluation(){
             if (Style)
-                Style->evaluateDynamicAttributeValues(this);
+                Style->evaluateDynamicAttributevalues(this);
         }
         
     protected:
@@ -6963,7 +7079,7 @@ namespace GGUI{
          * 
          * @details
          * - If the title is empty, the function returns immediately without modifying `Result`.
-         * - The title's length is determined by the `Style->Title.Value.size`.
+         * - The title's length is determined by the `Style->Title.value.size`.
          * - The function calculates the writable length based on the element's width,
          *   taking into account borders and the space required for the ellipsis.
          * - If the title exceeds the writable length, an ellipsis is appended to indicate truncation.
@@ -7041,7 +7157,7 @@ namespace GGUI{
          * @param child The child element for which the fitting dimensions are calculated.
          * @return A pair containing the width and height of the fitting dimensions.
          */
-        std::pair<unsigned int, unsigned int> getFittingDimensions(element* child);
+        std::pair<int, int> getFittingDimensions(element* child);
 
         /**
          * @brief Calculates the hitboxes of all child elements of the element.
@@ -7053,7 +7169,7 @@ namespace GGUI{
          * @param Starting_Offset The starting offset into the child array. If no argument is provided,
          *                         the function starts at the beginning of the child array.
          */
-        virtual void calculateChildsHitboxes([[maybe_unused]] unsigned int Starting_Offset = 0) {}
+        virtual void calculateChildsHitboxes([[maybe_unused]] size_t Starting_Offset = 0) {}
 
         /** 
          * @brief Marks the Element as fully dirty by setting all stain types.
@@ -7069,6 +7185,7 @@ namespace GGUI{
                 INTERNAL::STAIN_TYPE::COLOR | INTERNAL::STAIN_TYPE::DEEP | 
                 INTERNAL::STAIN_TYPE::EDGE | INTERNAL::STAIN_TYPE::MOVE
                 // INTERNAL::STAIN_TYPE::FINALIZE // <- only constructors have the right to set this flag!
+                | INTERNAL::STAIN_TYPE::NOT_RENDERED
             );
         }
         
@@ -7262,7 +7379,7 @@ namespace GGUI{
          *          It finally sets the dimensions of the list view to the maximum width and height if the list view is dynamically sized and the maximum width/height is greater than the current width/height.
          * @param Starting_Offset The starting offset into the child array.
          */
-        void calculateChildsHitboxes(unsigned int Starting_Offset = 0) override;
+        void calculateChildsHitboxes(size_t Starting_Offset = 0) override;
 
         /**
          * @brief Retrieves the dimension limits of the list view.
@@ -7583,7 +7700,7 @@ namespace GGUI{
         int Offset = 0;     // This is for more beautiful mass animation systems
         int Speed = 1;      // Using decimals too slow hmmm...
         
-        int Frame_Distance = 1;
+        int Frame_Distance = 1; // This represents the distance between each frame
         
         bool Is_Power_Of_Two = false;
     public:
@@ -7657,6 +7774,7 @@ namespace GGUI{
         // For speeding up sprite sets, to avoid redundant checks in unordered_maps.
         bool Multi_Frame = false;
 
+        // Per-frame, use On_Render for an single pass use.
         GGUI::sprite (*On_Draw)(unsigned int x, unsigned int y) = 0;
     public:
         /**
@@ -9083,6 +9201,14 @@ namespace GGUI{
      * @param signum The exit code to be used when terminating the application.
      */
     extern void EXIT(int Signum = 0);
+    
+    /**
+     * @brief Blocks the calling thread until a termination request is signaled.
+     * 
+     * It is typically used to keep the main thread alive until the application is
+     * requested to terminate (e.g., via signal or internal shutdown logic).
+     */
+    extern void waitForTermination();
 
     /**
      * @brief Returns the Main element of the GGUI system.
@@ -9090,6 +9216,11 @@ namespace GGUI{
      * @return A pointer to the main element of the GGUI system.
      */
     extern element* getRoot();
+    
+    /**
+     * @brief Register cleanup functions to be called on SIGINT, SIGTERM, std::exit(), std::quick_exit(), std::termination
+     */
+    extern void registerCleanupCallback(std::function<void()> Callback);
 
     /**
      * @brief Updates the frame.
@@ -9180,7 +9311,7 @@ namespace GGUI{
     /**
      * @brief Initializes the inspect tool.
      * @details This function initializes the inspect tool which is a debug tool that displays the number of elements, render time, and event time.
-     * @see GGUI::Update_Stats
+     * @see GGUI::updateStats
      */
     extern void initInspectTool();
 }

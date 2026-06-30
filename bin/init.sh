@@ -3,17 +3,7 @@
 # =============================================================================
 # evie Project Initialization Script (Linux)
 # =============================================================================
-# This script initializes and builds the evie project locally. It validates
-# the environment, checks for required tools, manages the build setup, and
-# ensures analytics tools are properly configured.
-#
-# Features:
-# - Environment and requirements validation
-# - Automated build directory setup
-# - Project compilation with meson
-# - Analytics tools validation and setup
-# - Proper file permissions configuration
-#
+# This script initializes and builds the evie_core and debug objects for compile_commands.json for intellisense to work.
 # =============================================================================
 
 # Function to check if the script is being run from the project root directory
@@ -62,20 +52,11 @@ echo
 echo "Setting execution permissions..."
 find . -name "*.sh" -type f -exec chmod +x {} \; 2>/dev/null || true
 
-# Step 1: Ensure the required tools are installed
+# Ensure the required tools are installed
 check_command "meson" "meson"
-check_command "g++" "g++"
+check_command "c++" "c++"
 
 echo
-
-# Step 2: Set up build environment
-echo "Step 2: Setting up build environment..."
-
-# Ensure the CXX variable is set (default to 'g++' if not)
-if [ -z "$CXX" ]; then
-    export CXX=g++
-    echo "CXX environment variable was not set. Defaulting to 'g++'."
-fi
 
 # Check if ./build, ./build-win, ./build-release, ./build-linux exists, if so then remove them
 if [ -d "./build" ]; then
@@ -90,8 +71,8 @@ fi
 echo "Setting up the default build configure..."
 meson setup build -Dbuildtype=debug || exit 1
 
-# Step 4: Compile the project using meson
-echo "Step 4: Compiling the project..."
+# Compile the project using meson
+echo "Compiling the project..."
 meson compile -C build evie_core || exit 1
 
 echo

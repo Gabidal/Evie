@@ -65,22 +65,8 @@ endforeach
 # Linker arguments (collected project-wide)
 link_args = []
 
-# Add custom flags based on Meson's buildtype
-if build_type == 'profile'
-  cpp_args += ['-Devie_DEBUG', '-Og']
-  link_args += ['-static']  # Link all libc and other libraries statically for maximum inline and true profiling.
-
-elif build_type == 'debug'
-  cpp_args += ['-Devie_DEBUG']  # no flto nor -Og since debugging becomes an hassle with weird line skipping.
-
-  if host_machine.system() == 'windows'
-    link_args += ['-lDbgHelp', '-Wl,--export-all-symbols']    # Link with DbgHelp library and export all symbols for stacktrace
-  elif host_machine.system() == 'linux'
-    cpp_args += ['-rdynamic']   # Export all symbols for stacktrace
-  endif
-
-elif build_type == 'release'
-  cpp_args += ['-Devie_RELEASE']
+# Add shared flags for debugoptimized and release builds
+if build_type == 'debugoptimized' or build_type == 'release'
 
   # NOTE: -static doesn't react similar to how it behaves in linux.
   link_args += ['-static'] # Link all libc and other libraries statically for maximum inline.
@@ -94,9 +80,26 @@ elif build_type == 'release'
     link_args += ['-flto']
   endif
   if cppc.has_argument('-fwhole-program')
-    cpp_args += ['-fwhole-program']
+    # cpp_args += ['-fwhole-program']
     link_args += ['-fwhole-program']
   endif
+  if cppc.has_argument('-fvisibility=hidden')
+    cpp_args += ['-fvisibility=hidden']
+  endif
+endif
+
+if build_type == 'debugoptimized' or build_type == 'debug'
+  if host_machine.system() == 'windows'
+    link_args += ['-lDbgHelp', '-Wl,--export-all-symbols']    # Link with DbgHelp library and export all symbols for stacktrace
+  elif host_machine.system() == 'linux'
+    link_args += ['-rdynamic']   # Export all symbols for stacktrace
+  endif
+endif
+
+# Try clang's own std library if it is the default one
+if cppc.get_id() == 'clang'
+  cpp_args += ['-stdlib=libc++']
+  link_args += ['-stdlib=libc++', '-fuse-ld=lld']
 endif
 
 # Apply computed flags project-wide so individual targets don't need to repeat them
@@ -112,7 +115,7 @@ ggui_inc = include_directories('../external/ggui')
 
 # Discover the prebuilt static library from the repo root
 ggui_lib_dir = join_paths(meson.current_source_dir(), '..', 'external', 'ggui')
-ggui_lib = cppc.find_library('ggui', dirs: [ggui_lib_dir], required: true, static: true)
+ggui_lib = cppc.find_library('ggui_linux_x86_64', dirs: [ggui_lib_dir], required: true, static: true)
 ggui_dep = declare_dependency(
   include_directories: ggui_inc,
   dependencies: [ggui_lib]
